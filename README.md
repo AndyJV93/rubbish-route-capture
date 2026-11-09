@@ -43,8 +43,14 @@ Plain HTML/CSS/JS, no build step. `logic.js` holds all the state rules and has n
 `app.js` is the UI and storage; `sw.js` is the offline cache. Run the tests with:
 
 ```
-node --test tests/
+node --test
+python3 tools/check_no_customer_data.py
 ```
+
+The second command refuses any roster, appearances CSV or route export outside `sample/`
+(and, when a private denylist file is present, any customer name or street). It runs in CI
+and as a pre-commit hook; install the hook once with
+`cp tools/pre-commit .git/hooks/pre-commit`.
 
 To release: bump `VERSION` in `sw.js` (and `APP_VERSION` in `app.js`), then push to `main`.
 GitHub Pages serves the site from the repository root.

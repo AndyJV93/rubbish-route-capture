@@ -3,7 +3,7 @@
 
 The CSV has one row per customer per printed route sheet:
     Date,Day,List,Street,Number,Name,Flags on sheet
-    2026-11-13,Fri,1,Main St,12,Smith,*
+    2026-11-13,Fri,1,Main St,12,Example,*
 Flags: "*" = roadside pickup, "$12.34" = contract price printed on the sheet,
 "DELETE" = skip that day, "?" = the OCR was unsure.
 
