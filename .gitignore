@@ -1,0 +1,16 @@
+# Never commit real customer data: rosters, appearance exports, route logs.
+roster*.json
+!sample/roster.sample.json
+appearances*.csv
+skeleton*.json
+*Route Log*
+*.pdf
+*.xlsx
+data/
+logs/
+
+# Tooling
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/

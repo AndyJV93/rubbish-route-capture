@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b5e3b">
+<meta name="color-scheme" content="light dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Route Capture</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button id="dayBtn" class="daybtn" type="button" aria-label="Change day">
+    <span id="dayLabel" class="daylabel">—</span>
+    <span id="dateLabel" class="datelabel">—</span>
+  </button>
+  <div class="progress" aria-live="polite">
+    <span id="doneCount" class="big">0</span><span class="of">/</span><span id="totalCount" class="big">0</span>
+    <div id="subline" class="subline"></div>
+  </div>
+  <button id="menuBtn" class="iconbtn" type="button" aria-label="Menu">&#8942;</button>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main id="list" class="list" aria-label="Stops"></main>
+
+<footer class="bottombar">
+  <button id="addBtn" class="btn secondary" type="button">+ Add stop</button>
+  <button id="completeBtn" class="btn primary" type="button">Complete route</button>
+</footer>
+
+<!-- Row action sheet -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div id="sheetTitle" class="sheet-title"></div>
+    <div id="sheetBody" class="sheet-body"></div>
+    <button class="btn ghost sheet-close" type="button" data-close>Close</button>
+  </div>
+</div>
+
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
