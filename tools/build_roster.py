@@ -36,6 +36,16 @@ def house_sort_key(number):
     return (0, int(m.group(1)), number) if m else (1, 0, number)
 
 
+def parse_flag(v):
+    """'1'/'yes'/'true' -> True, '0'/'no'/'false' -> False, blank -> None, else the text."""
+    low = v.lower()
+    if low in ("1", "yes", "true", "y"):
+        return True
+    if low in ("0", "no", "false", "n"):
+        return False
+    return v or None
+
+
 def read_appearances(path):
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
@@ -158,6 +168,8 @@ def main():
     ap.add_argument("appearances_csv")
     ap.add_argument("roster_json")
     ap.add_argument("--skeleton", help="skeletons.json with known driver order per weekday")
+    ap.add_argument("--extra", help="CSV of extra per-customer fields keyed by Day,Street,Number "
+                                    "(e.g. recycle: 1 = yes, 0 = no, blank = unknown)")
     ap.add_argument("--label", default="", help="free-text label stored in the roster")
     args = ap.parse_args()
 
@@ -178,9 +190,22 @@ def main():
         "label": args.label,
         "days": {},
     }
+    extra = {}
+    if args.extra:
+        with open(args.extra, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                r = {k.strip(): (v or "").strip() for k, v in r.items()}
+                fields = {k: parse_flag(v) for k, v in r.items()
+                          if k not in ("Day", "Street", "Number", "note")}
+                extra[(r["Day"], r["Street"], r["Number"])] = fields
+
     for day in DAYS:
         if day in by_day:
-            roster["days"][day] = build_day(day, by_day[day], skeletons.get(day))
+            d = build_day(day, by_day[day], skeletons.get(day))
+            for s in d["stops"]:
+                s.setdefault("recycle", None)
+                s.update(extra.get((day, s["street"], s["number"]), {}))
+            roster["days"][day] = d
 
     with open(args.roster_json, "w", encoding="utf-8") as f:
         json.dump(roster, f, indent=1, ensure_ascii=False)

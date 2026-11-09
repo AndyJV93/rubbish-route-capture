@@ -11,7 +11,7 @@ const roster = {
       stops: [
         { id: 'a', street: 'Main St', number: '1', name: 'Alpha', onLastSheet: true, roadside: true },
         { id: 'b', street: 'Main St', number: '7', name: 'Bravo', onLastSheet: true, contract: '$18.75' },
-        { id: 'c', street: 'Oak Ln', number: '3', name: 'Charlie', onLastSheet: true },
+        { id: 'c', street: 'Oak Ln', number: '3', name: 'Charlie', onLastSheet: true, recycle: true },
         { id: 'd', street: 'Oak Ln', number: '9', name: 'Delta', onLastSheet: false }
       ]
     }
@@ -121,10 +121,32 @@ test('CSV export: sequenced first, then skipped, then not done; quotes escaped',
   RC.toggleSkip(st, 'a');
   const lines = RC.toCsv(st).trim().split('\r\n');
   assert.equal(lines.length, 4);
-  assert.match(lines[0], /^date,day,seq,time,street,number,name,cans/);
-  assert.match(lines[1], /^2026-11-13,Fri,1,\d\d:\d\d:\d\d,Main St,7,Bravo,3,,\$18\.75,done,"gate code ""1234"", back in",$/);
-  assert.match(lines[2], /,Main St,1,Alpha,,yes,,skipped,,$/);
-  assert.match(lines[3], /,Oak Ln,3,Charlie,,,,not_done,,$/);
+  assert.match(lines[0], /^date,day,seq,time,street,number,name,trash_cans/);
+  assert.match(lines[0], /trash_cans,recycling_cans,roadside,has_recycle,contract,status,note,added_today$/);
+  assert.match(lines[1], /^2026-11-13,Fri,1,\d\d:\d\d:\d\d,Main St,7,Bravo,3,,,,\$18\.75,done,"gate code ""1234"", back in",$/);
+  assert.match(lines[2], /,Main St,1,Alpha,,,yes,,,skipped,,$/);
+  assert.match(lines[3], /,Oak Ln,3,Charlie,,,,yes,,not_done,,$/);
+});
+
+test('recycling count is separate from trash and also taps the stop', () => {
+  const st = RC.createDay('2026-11-13', roster);
+  assert.equal(st.stops.find(s => s.id === 'c').hasRecycle, true);
+  assert.equal(st.stops.find(s => s.id === 'a').hasRecycle, null);
+  RC.setRecycling(st, 'c', 2, min(0));
+  const c = st.stops.find(s => s.id === 'c');
+  assert.equal(c.seq, 1);
+  assert.equal(c.recycling, 2);
+  assert.equal(c.cans, null);
+  RC.setCans(st, 'c', 3, min(1));
+  const sum = RC.summary(st, min(2));
+  assert.equal(sum.cans, 3);
+  assert.equal(sum.recycling, 2);
+  assert.equal(sum.nothingOut, 0);
+  RC.toggleHasRecycle(st, 'a');
+  assert.equal(st.stops.find(s => s.id === 'a').hasRecycle, true);
+  const line = RC.toCsv(st).trim().split('\r\n')[1];
+  assert.match(line, /,Oak Ln,3,Charlie,3,2,,yes,,done,,$/);
+  assert.equal(RC.pdfRows(st).done[0][5], '2');
 });
 
 test('PDF rows and file name', () => {
@@ -133,7 +155,7 @@ test('PDF rows and file name', () => {
   const rows = RC.pdfRows(st);
   assert.equal(rows.done.length, 1);
   assert.deepEqual(rows.done[0].slice(2, 5), ['1 Main St', 'Alpha', '4']);
-  assert.equal(rows.done[0][5], 'roadside');
+  assert.equal(rows.done[0][6], 'roadside');
   assert.equal(rows.notDone.length, 2);
   assert.equal(RC.fileStem(st), '2026-11-13 Fri Route Log');
 });

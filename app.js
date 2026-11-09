@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', day: d => `rc.day.${d}` };
   const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 
@@ -83,7 +83,8 @@
     $('#doneCount').textContent = sum.done;
     $('#totalCount').textContent = sum.total;
     const bits = [];
-    if (sum.cans) bits.push(`${sum.cans} cans`);
+    if (sum.cans) bits.push(`🗑 ${sum.cans}`);
+    if (sum.recycling) bits.push(`♻ ${sum.recycling}`);
     if (sum.elapsedMs != null && sum.done > 1) bits.push(RC.durationText(sum.elapsedMs));
     if (sum.skipped) bits.push(`${sum.skipped} skipped`);
     $('#subline').textContent = bits.join(' · ');
@@ -134,6 +135,7 @@
     const meta = el('div', { class: 'meta' });
     if (s.time) meta.append(el('span', { class: 'tag time' }, RC.hhmm(s.time)));
     if (s.roadside === true) meta.append(el('span', { class: 'tag road' }, 'roadside'));
+    if (s.hasRecycle === true) meta.append(el('span', { class: 'tag recyc' }, '♻ recycle'));
     if (s.contract) meta.append(el('span', { class: 'tag contract' }, s.contract));
     if (s.unsure) meta.append(el('span', { class: 'tag unsure' }, 'check #'));
     if (s.added) meta.append(el('span', { class: 'tag new' }, 'added today'));
@@ -148,13 +150,19 @@
       el('div', { class: 'who' }, el('span', { class: 'num' }, s.number), ' ', s.name || ''),
       meta);
 
-    const sel = el('select', { class: 'cans' + (s.cans == null ? ' empty' : ''), 'aria-label': 'Cans',
-      onchange: e => { RC.setCans(state, s.id, e.target.value, Date.now()); save(); render(); } });
-    sel.append(el('option', { value: '' }, '– cans'));
-    for (let i = 0; i <= 15; i++) sel.append(el('option', { value: String(i) }, String(i)));
-    sel.value = s.cans == null ? '' : String(s.cans);
+    const counter = (field, icon, label) => {
+      const sel = el('select', { class: `cans ${field}` + (s[field] == null ? ' empty' : ''), 'aria-label': label,
+        onchange: e => { RC.setCount(state, s.id, field, e.target.value, Date.now()); save(); render(); } });
+      sel.append(el('option', { value: '' }, `${icon} –`));
+      for (let i = 0; i <= 15; i++) sel.append(el('option', { value: String(i) }, `${icon} ${i}`));
+      sel.value = s[field] == null ? '' : String(s[field]);
+      return sel;
+    };
+    const counts = el('div', { class: 'counts' },
+      counter('cans', '🗑', 'Trash cans'),
+      counter('recycling', '♻', 'Recycling cans'));
 
-    return el('div', { class: cls, 'data-id': s.id }, badge, main, sel);
+    return el('div', { class: cls, 'data-id': s.id }, badge, main, counts);
   }
 
   // ------------------------------------------------------------ sheets (modals)
@@ -183,6 +191,7 @@
       }
       body.append(act(s.skipped ? 'Un-skip (back on today’s list)' : 'Skip today (DELETE on sheet)', () => RC.toggleSkip(state, id)));
       body.append(act(s.roadside === true ? 'Mark as driveway (not roadside)' : 'Mark as roadside pickup', () => RC.toggleRoadside(state, id)));
+      body.append(act(s.hasRecycle === true ? 'Mark as no recycling service' : 'Mark as has recycling ♻', () => RC.toggleHasRecycle(state, id)));
       const note = el('input', { type: 'text', value: s.note || '', placeholder: 'e.g. back in, gate code, dog' });
       body.append(el('label', null, 'Note'), note);
       body.append(el('button', { class: 'btn secondary block', type: 'button',
@@ -333,7 +342,8 @@
     openSheet('Route complete', body => {
       body.append(el('div', { class: 'summary' },
         el('div', null, el('b', null, `${sum.done}`), el('span', null, `of ${sum.total} stops`)),
-        el('div', null, el('b', null, `${sum.cans}`), el('span', null, 'cans')),
+        el('div', null, el('b', null, `${sum.cans}`), el('span', null, '🗑 trash cans')),
+        el('div', null, el('b', null, `${sum.recycling}`), el('span', null, '♻ recycling')),
         el('div', null, el('b', null, RC.durationText(sum.elapsedMs) || '–'), el('span', null, 'first to last'))));
       if (sum.remaining) body.append(el('div', { class: 'banner' }, `${sum.remaining} stops were not marked done. They are listed as "not done" in the export.`));
       const status = el('div', { class: 'fine' });
@@ -391,15 +401,15 @@
     const sum = RC.summary(state);
     const rows = RC.pdfRows(state);
     const cols = [
-      { h: '#', w: 26 }, { h: 'Time', w: 38 }, { h: 'Address', w: 150 }, { h: 'Name', w: 110 },
-      { h: 'Cans', w: 32 }, { h: 'Flags', w: 90 }, { h: 'Note', w: W - 2 * M - 446 }
+      { h: '#', w: 26 }, { h: 'Time', w: 38 }, { h: 'Address', w: 140 }, { h: 'Name', w: 100 },
+      { h: 'Trash', w: 32 }, { h: 'Recyc', w: 36 }, { h: 'Flags', w: 96 }, { h: 'Note', w: W - 2 * M - 468 }
     ];
     let y = M;
     const header = () => {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
       doc.text(`Route Log — ${RC.dayNameOf(state.date)}, ${state.date}`, M, y); y += 20;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      const t = [`${sum.done} of ${sum.total} stops`, `${sum.cans} cans`,
+      const t = [`${sum.done} of ${sum.total} stops`, `${sum.cans} trash cans`, `${sum.recycling} recycling`,
         sum.first ? `first ${RC.hhmm(sum.first)}` : '', sum.last ? `last ${RC.hhmm(sum.last)}` : '',
         sum.elapsedMs != null ? RC.durationText(sum.elapsedMs) : '', sum.skipped ? `${sum.skipped} skipped` : ''].filter(Boolean).join('   ·   ');
       doc.text(t, M, y); y += 18;

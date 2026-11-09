@@ -50,6 +50,7 @@
       name: s.name,
       contract: s.contract || null,
       roadside: s.roadside == null ? null : !!s.roadside,
+      hasRecycle: s.recycle == null ? null : !!s.recycle,   // has recycling service (from the sheet)
       unsure: !!s.unsure,
       onLastSheet: s.onLastSheet !== false,
       orderSource: s.orderSource || 'sheet',
@@ -57,7 +58,8 @@
       // per-day capture
       seq: null,
       time: null,
-      cans: null,
+      cans: null,        // trash cans out, 0-15
+      recycling: null,   // recycling cans out, 0-15
       note: '',
       skipped: false,
       hidden: s.onLastSheet === false,   // off the latest sheet: tucked away until needed
@@ -108,13 +110,21 @@
     return state;
   }
 
-  /** Set the can count. Setting a count on an untapped stop taps it (0 still records the time). */
-  function setCans(state, id, n, now) {
+  /** Set a count (trash 'cans' or 'recycling'). Setting a count on an untapped stop taps it
+      (0 still records the time: that is the "nothing out" record). */
+  function setCount(state, id, field, n, now) {
     const s = findStop(state, id);
-    if (n === null || n === '' || n === undefined) { s.cans = null; return state; }
-    const v = Math.max(0, Math.min(15, Number(n) | 0));
-    s.cans = v;
+    if (n === null || n === '' || n === undefined) { s[field] = null; return state; }
+    s[field] = Math.max(0, Math.min(15, Number(n) | 0));
     if (s.seq == null) tap(state, id, now);
+    return state;
+  }
+  function setCans(state, id, n, now) { return setCount(state, id, 'cans', n, now); }
+  function setRecycling(state, id, n, now) { return setCount(state, id, 'recycling', n, now); }
+
+  function toggleHasRecycle(state, id) {
+    const s = findStop(state, id);
+    s.hasRecycle = s.hasRecycle === true ? false : true;
     return state;
   }
 
@@ -162,9 +172,9 @@
     while (state.stops.some(s => s.id === id)) id = `${base}-${n++}`;
     const s = {
       id, street: (street || '').trim(), number: (number || '').trim(), name: (name || '').trim(),
-      contract: null, roadside: null, unsure: false, onLastSheet: true, orderSource: 'added',
+      contract: null, roadside: null, hasRecycle: null, unsure: false, onLastSheet: true, orderSource: 'added',
       rosterIndex: state.stops.length,
-      seq: null, time: null, cans: null, note: '', skipped: false, hidden: false, added: true,
+      seq: null, time: null, cans: null, recycling: null, note: '', skipped: false, hidden: false, added: true,
       addedAt: now
     };
     state.stops.push(s);
@@ -210,6 +220,7 @@
     const active = state.stops.filter(s => !s.hidden && !s.skipped);
     const done = active.filter(s => s.seq != null);
     const cans = done.reduce((t, s) => t + (s.cans || 0), 0);
+    const recycling = done.reduce((t, s) => t + (s.recycling || 0), 0);
     const times = done.map(s => s.time).filter(Boolean);
     const first = times.length ? Math.min(...times) : null;
     const last = times.length ? Math.max(...times) : null;
@@ -220,8 +231,9 @@
       remaining: active.length - done.length,
       skipped: state.stops.filter(s => s.skipped && !s.hidden).length,
       cans,
-      withCount: done.filter(s => s.cans != null).length,
-      nothingOut: done.filter(s => s.cans === 0).length,
+      recycling,
+      withCount: done.filter(s => s.cans != null || s.recycling != null).length,
+      nothingOut: done.filter(s => s.cans === 0 && !(s.recycling > 0)).length,
       first, last,
       elapsedMs: first != null && end != null ? end - first : null
     };
@@ -237,12 +249,13 @@
   /** One row per stop, sequenced ones first. The office can open this in Excel. */
   function toCsv(state) {
     const { seq, skipped, rest } = orderedStops(state);
-    const head = ['date', 'day', 'seq', 'time', 'street', 'number', 'name', 'cans', 'roadside',
-      'contract', 'status', 'note', 'added_today'];
+    const head = ['date', 'day', 'seq', 'time', 'street', 'number', 'name', 'trash_cans', 'recycling_cans',
+      'roadside', 'has_recycle', 'contract', 'status', 'note', 'added_today'];
+    const yn = v => (v == null ? '' : (v ? 'yes' : 'no'));
     const row = (s, status) => [
       state.date, state.day, s.seq == null ? '' : s.seq, s.time ? hhmmss(s.time) : '',
-      s.street, s.number, s.name, s.cans == null ? '' : s.cans,
-      s.roadside == null ? '' : (s.roadside ? 'yes' : 'no'),
+      s.street, s.number, s.name, s.cans == null ? '' : s.cans, s.recycling == null ? '' : s.recycling,
+      yn(s.roadside), yn(s.hasRecycle),
       s.contract || '', status, s.note || '', s.added ? 'yes' : ''
     ].map(csvEscape).join(',');
     const lines = [head.join(',')];
@@ -257,18 +270,20 @@
     return JSON.stringify(state, null, 1);
   }
 
-  /** Rows for the PDF: [seq, time, address, name, cans, flags, note]. */
+  /** Rows for the PDF: [seq, time, address, name, trash, recycling, flags, note]. */
   function pdfRows(state) {
     const { seq, skipped, rest } = orderedStops(state);
     const flags = s => [
       s.roadside === true ? 'roadside' : '',
+      s.hasRecycle === true ? 'recycle' : '',
       s.contract ? 'contract ' + s.contract : '',
       s.added ? 'ADDED' : ''
     ].filter(Boolean).join(', ');
     const r = (s, mark) => [
       mark != null ? mark : String(s.seq), s.time ? hhmm(s.time) : '',
       `${s.number} ${s.street}`.trim(), s.name,
-      s.cans == null ? '' : String(s.cans), flags(s), s.note || ''
+      s.cans == null ? '' : String(s.cans), s.recycling == null ? '' : String(s.recycling),
+      flags(s), s.note || ''
     ];
     return {
       done: seq.map(s => r(s)),
@@ -303,7 +318,8 @@
 
   return {
     DAY_KEYS, DAY_NAMES, dayKeyOf, dayNameOf, todayIso, hhmm, hhmmss, durationText,
-    createDay, tap, untap, setCans, move, setNote, toggleSkip, toggleRoadside, unhide, addStop,
+    createDay, tap, untap, setCount, setCans, setRecycling, move, setNote, toggleSkip, toggleRoadside,
+    toggleHasRecycle, unhide, addStop,
     complete, reopen, visibleStops, hiddenStops, groupByStreet, orderedStops, summary,
     toCsv, toJson, pdfRows, fileStem, validateRoster
   };

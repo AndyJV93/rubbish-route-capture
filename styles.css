@@ -109,11 +109,15 @@ button { font: inherit; color: inherit; }
 .tag.contract { background: var(--warn-bg); color: var(--warn); }
 .tag.unsure, .tag.new { background: var(--skip-bg); color: var(--skip); }
 .tag.time { background: transparent; color: var(--muted); padding: 0; }
+.counts { display: flex; gap: 6px; }
 .cans {
-  height: var(--tap); min-width: 72px; font-size: 22px; font-weight: 700; text-align: center;
+  height: var(--tap); width: 70px; font-size: 18px; font-weight: 700; text-align: center;
   border-radius: 12px; border: 2px solid var(--line); background: var(--card); color: var(--ink);
-  padding: 0 6px;
+  padding: 0 2px; -webkit-appearance: none; appearance: none;
 }
+.tag.recyc { background: #dff3e4; color: #1b5e3b; }
+@media (prefers-color-scheme: dark) { .tag.recyc { background: #16301f; color: #6fd39a; } .tag.road { background: #16273d; color: #8ab4f8; } }
+@media (max-width: 380px) { .cans { width: 62px; font-size: 16px; } }
 .stop.done .cans { border-color: var(--done); }
 .cans.empty { color: var(--muted); font-weight: 500; }
 
@@ -167,7 +171,7 @@ button { font: inherit; color: inherit; }
 .daygrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
 .daygrid .btn { padding: 10px 0; }
 .daygrid .btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
+.summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0 4px; }
 .summary div { background: var(--bg); border-radius: 12px; padding: 10px; text-align: center; }
 .summary b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
 .summary span { font-size: 13px; color: var(--muted); }
