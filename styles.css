@@ -40,7 +40,8 @@ body {
   background: var(--bg);
   color: var(--ink);
   -webkit-tap-highlight-color: transparent;
-  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  /* room so the last card clears the bottom bar and its selects can open */
+  padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
   overscroll-behavior-y: contain;
 }
 button { font: inherit; color: inherit; }
@@ -89,6 +90,12 @@ button { font: inherit; color: inherit; }
   min-height: 72px; margin-bottom: 6px; padding: 4px 6px;
   background: var(--card); border: 1px solid var(--line); border-radius: 14px;
 }
+/* Two rows: the name and tags take the full width of row 1, the count selects sit on
+   row 2 at the right, so a long name is never clipped by the buttons. */
+.stop { grid-template-columns: var(--tap) 1fr; grid-template-rows: auto auto; row-gap: 0; min-height: 0; padding-bottom: 6px; }
+.stop .badge { grid-row: 1 / 3; }
+.stop .main { grid-column: 2; grid-row: 1; min-height: 40px; padding: 2px 0 0; }
+.stop .counts { grid-column: 2; grid-row: 2; justify-self: end; margin: 2px 2px 0 0; }
 .street + .stop, .stop + .stop { margin-top: 0; }
 .stop.done { background: var(--done-bg); border-color: transparent; }
 .stop.skipped { background: var(--skip-bg); border-color: transparent; opacity: .85; }
@@ -109,15 +116,17 @@ button { font: inherit; color: inherit; }
 .tag.contract { background: var(--warn-bg); color: var(--warn); }
 .tag.unsure, .tag.new { background: var(--skip-bg); color: var(--skip); }
 .tag.time { background: transparent; color: var(--muted); padding: 0; }
-.counts { display: flex; gap: 6px; }
+/* explicit box: Firefox sizes a styled <select>'s container from its intrinsic size otherwise */
+.counts { display: flex; gap: 10px; width: 150px; height: var(--tap); }
+.counts .cans { flex: 0 0 auto; min-width: 0; }
 .cans {
   height: var(--tap); width: 70px; font-size: 18px; font-weight: 700; text-align: center;
   border-radius: 12px; border: 2px solid var(--line); background: var(--card); color: var(--ink);
-  padding: 0 2px; -webkit-appearance: none; appearance: none;
+  padding: 0 2px; margin: 0; -webkit-appearance: none; appearance: none;
 }
 .tag.recyc { background: #dff3e4; color: #1b5e3b; }
 @media (prefers-color-scheme: dark) { .tag.recyc { background: #16301f; color: #6fd39a; } .tag.road { background: #16273d; color: #8ab4f8; } }
-@media (max-width: 380px) { .cans { width: 62px; font-size: 16px; } }
+@media (max-width: 380px) { .cans { width: 62px; font-size: 16px; } .counts { width: 134px; } }
 .stop.done .cans { border-color: var(--done); }
 .cans.empty { color: var(--muted); font-weight: 500; }
 
