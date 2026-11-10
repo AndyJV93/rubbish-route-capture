@@ -18,6 +18,9 @@ slotted next to their street-mates.
 lists from the billing program's schedule (see schedule.py) instead of from the sheets;
 the appearances CSV is then used only for display names ("-" for none).
 
+--changes takes the office change form's responses as CSV (see changes.py): holds and skips
+are tucked away for their dates, cancels removed, new customers added and slotted by street.
+
 --access takes the customer master exported from the office billing program, with
 at least the columns "Street (tracker)", "Number (text)", "Customer ID",
 "Schedule code", "Next pickup", "Recycling" (Y/N), "Pickup location code" (D/R),
@@ -35,6 +38,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import changes as office  # noqa: E402
 import schedule  # noqa: E402
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -236,6 +240,7 @@ def main():
                                     "(e.g. recycle: 1 = yes, 0 = no, blank = unknown)")
     ap.add_argument("--access", help="CSV exported from the billing program's customer table "
                                      "(see module docstring for the columns used)")
+    ap.add_argument("--changes", help="CSV of the office change form's responses (holds, skips, new customers, cancels)")
     ap.add_argument("--week", help="Monday (YYYY-MM-DD): build that week from the schedule in --access")
     ap.add_argument("--export-date", help="date the --access file was exported (YYYY-MM-DD); needed with --week")
     ap.add_argument("--dormant-days", type=int, default=56,
@@ -287,9 +292,17 @@ def main():
                 r = {k.strip(): (v or "").strip() for k, v in r.items()}
                 access[(r["Street (tracker)"], r["Number (text)"])] = r
 
+    changes = office.read_changes(args.changes) if args.changes else []
+    change_log = []
     unmatched = []
     for day in DAYS:
         if day in by_day:
+            service_date = date.fromisoformat(max(r["Date"] for r in by_day[day]))
+            if changes:
+                keys = {(r["Street"], r["Number"]) for r in by_day[day] if r["Date"] == service_date.isoformat()}
+                added = office.new_customer_rows(changes, day, service_date, keys)
+                by_day[day] += added
+                change_log += [f"{day}: new customer added: {r['Number']} {r['Street']} {r['Name']}" for r in added]
             d = build_day(day, by_day[day], skeletons.get(day))
             for s in d["stops"]:
                 s.setdefault("recycle", None)
@@ -301,7 +314,14 @@ def main():
                 # truck observations win, but a blank in the extra file is "no information"
                 s.update({k: v for k, v in extra.get((day, s["street"], s["number"]), {}).items()
                           if v is not None})
+            if changes:
+                d["stops"], log = office.apply_to_stops(d["stops"], changes, service_date)
+                change_log += [f"{day}: {line}" for line in log]
             roster["days"][day] = d
+    for line in change_log:
+        print("office change:", line, file=sys.stderr)
+    for line in office.needs_a_person(changes):
+        print("office change needs a person:", line, file=sys.stderr)
     if unmatched:
         print(f"{len(unmatched)} stops have no row in the --access file:", file=sys.stderr)
         for u in unmatched:
