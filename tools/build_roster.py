@@ -14,6 +14,10 @@ slotted next to their street-mates.
     python3 build_roster.py appearances.csv roster.json [--skeleton skeletons.json]
         [--extra flags.csv] [--access customers.csv]
 
+--week YYYY-MM-DD (a Monday) with --access and --export-date builds the five weekday
+lists from the billing program's schedule (see schedule.py) instead of from the sheets;
+the appearances CSV is then used only for display names ("-" for none).
+
 --access takes the customer master exported from the office billing program, with
 at least the columns "Street (tracker)", "Number (text)", "Customer ID",
 "Schedule code", "Next pickup", "Recycling" (Y/N), "Pickup location code" (D/R),
@@ -28,6 +32,10 @@ import re
 import sys
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import schedule  # noqa: E402
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 PRICE = re.compile(r"\$\d+(?:\.\d{2})?")
@@ -189,6 +197,36 @@ def apply_access(stop, a):
             stop["contract"] = rate
 
 
+def display_name(raw):
+    """Upper-case names from the billing program to display case: SAMPLE -> Sample, MCTEST -> McTest."""
+    raw = (raw or "").strip()
+    if raw != raw.upper():          # already mixed case: someone typed it the way they want it
+        return raw
+    out = re.sub(r"[A-Za-z]+", lambda m: m.group(0).capitalize(), raw)
+    return re.sub(r"\bMc([a-z])", lambda m: "Mc" + m.group(1).upper(), out)
+
+
+def predicted_rows(access_rows, monday, export_date, names, dormant_days=56):
+    """Appearance-style rows for one week, from the schedule. names: {(street, number): display name}."""
+    rows, held = [], []
+    horizon = schedule.printed_through(access_rows)
+    for day in schedule.week_days(monday):
+        tag = schedule.WEEKDAYS[day.weekday()]
+        for a in schedule.held_on(access_rows, day, export_date, dormant_days, horizon):
+            held.append((tag, a["Street (tracker)"], a["Number (text)"], a.get("Temp stop end", "")))
+        due = schedule.due_on(access_rows, day, export_date, dormant_days, horizon)
+        due.sort(key=lambda a: (a.get("Route list", ""), a["Street (tracker)"], house_sort_key(a["Number (text)"])))
+        for a in due:
+            key = (a["Street (tracker)"], a["Number (text)"])
+            lists = [x.strip() for x in a.get("Route list", "").split(";") if x.strip().startswith(tag)]
+            rows.append({"Date": day.isoformat(), "Day": tag,
+                         "List": (lists[0][-1:] if lists else ""),
+                         "Street": key[0], "Number": key[1],
+                         "Name": names.get(key) or display_name(a.get("Last name")),
+                         "Flags on sheet": ""})
+    return rows, held
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("appearances_csv")
@@ -198,10 +236,23 @@ def main():
                                     "(e.g. recycle: 1 = yes, 0 = no, blank = unknown)")
     ap.add_argument("--access", help="CSV exported from the billing program's customer table "
                                      "(see module docstring for the columns used)")
+    ap.add_argument("--week", help="Monday (YYYY-MM-DD): build that week from the schedule in --access")
+    ap.add_argument("--export-date", help="date the --access file was exported (YYYY-MM-DD); needed with --week")
+    ap.add_argument("--dormant-days", type=int, default=56,
+                    help="with --week: skip customers not charged in this many days before the export")
     ap.add_argument("--label", default="", help="free-text label stored in the roster")
     args = ap.parse_args()
 
-    rows = read_appearances(args.appearances_csv)
+    rows = [] if args.appearances_csv == "-" else read_appearances(args.appearances_csv)
+    held = []
+    if args.week:
+        if not (args.access and args.export_date):
+            ap.error("--week needs --access and --export-date")
+        with open(args.access, newline="", encoding="utf-8") as f:
+            access_rows = [{k.strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(f)]
+        names = {(r["Street"], r["Number"]): r["Name"] for r in rows if r.get("Name")}
+        rows, held = predicted_rows(access_rows, date.fromisoformat(args.week),
+                                    date.fromisoformat(args.export_date), names, args.dormant_days)
     skeletons = {}
     if args.skeleton:
         with open(args.skeleton, encoding="utf-8") as f:
@@ -218,6 +269,8 @@ def main():
         "label": args.label,
         "days": {},
     }
+    if args.week:
+        roster["source"] = {"kind": "schedule", "week": args.week, "exportDate": args.export_date}
     extra = {}
     if args.extra:
         with open(args.extra, newline="", encoding="utf-8") as f:
@@ -257,6 +310,8 @@ def main():
     with open(args.roster_json, "w", encoding="utf-8") as f:
         json.dump(roster, f, indent=1, ensure_ascii=False)
 
+    for h in held:
+        print("on hold, left off:", *h, file=sys.stderr)
     for day, d in roster["days"].items():
         on = sum(1 for s in d["stops"] if s["onLastSheet"])
         src = defaultdict(int)
