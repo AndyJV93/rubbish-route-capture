@@ -65,7 +65,12 @@ def read_changes(path):
                 "recycling": r.get("Recycling", "").lower(), "location": r.get("Pickup location", "").lower(),
                 "barrels": r.get("Usual barrels", ""), "note": r.get("Note", ""), "by": r.get("Taken by", ""),
             })
-    return sorted(out, key=lambda c: c["stamp"])
+    out.sort(key=lambda c: c["stamp"])
+    # "replaces earlier entry" in the note: that customer's earlier entries of the same type are dropped
+    for later in [c for c in out if "replaces" in c["note"].lower()]:
+        out = [c for c in out if c is later or c["stamp"] >= later["stamp"] or c["type"] != later["type"]
+               or (c["street"], c["number"], c["access_id"]) != (later["street"], later["number"], later["access_id"])]
+    return out
 
 
 def same_customer(change, stop):

@@ -113,6 +113,15 @@ class ChangesTest(unittest.TestCase):
         self.assertTrue(office.same_customer(c, {"accessId": "77", "street": "Elsewhere St", "number": "1"}))
         self.assertFalse(office.same_customer(c, {"accessId": "78", "street": "Maple Rd", "number": "4"}))
 
+    def test_a_replacing_entry_drops_the_earlier_one(self):
+        rows = [change("1/6/2026 9:00:00", "Temporary hold", "Away", "Maple Rd", "4", "1/10/2026", "1/20/2026"),
+                change("1/6/2026 9:01:00", "Temporary hold", "Other", "Maple Rd", "15", "1/10/2026", "1/20/2026"),
+                change("1/7/2026 9:00:00", "Temporary hold", "Away", "Maple Rd", "4", "2/10/2026", "2/20/2026",
+                       Note="Replaces earlier entry, wrong month")]
+        write_csv(self.dir / "r.csv", COLS, rows)
+        got = [(c["name"], c["first"]) for c in office.read_changes(self.dir / "r.csv")]
+        self.assertEqual(got, [("Other", date(2026, 1, 10)), ("Away", date(2026, 2, 10))])
+
     def test_monthly_new_customer(self):
         c = dict(self.changes[2], every="monthly", first=date(2026, 1, 12), day="Mon")
         due = [d for d in (date(2026, 1, 12), date(2026, 1, 19), date(2026, 2, 9), date(2026, 2, 16)) if office.new_customer_due(c, d)]
