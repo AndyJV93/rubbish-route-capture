@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.1';
+  const APP_VERSION = '1.1.2';
   const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', day: d => `rc.day.${d}` };
   const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 
@@ -92,7 +92,7 @@
     $('#completeBtn').textContent = state.completedAt ? 'Export again' : 'Complete route';
 
     if (!roster) {
-      list.append(el('div', { class: 'empty' },
+      list.append(el('div', { class: 'empty-state' },
         'No roster loaded yet.',
         el('br'),
         el('button', { class: 'btn primary', type: 'button', onclick: openRosterSheet }, 'Load roster')));
@@ -101,7 +101,7 @@
 
     const visible = RC.visibleStops(state).filter(s => !(settings.hideDone && s.seq != null));
     if (!visible.length && !RC.visibleStops(state).length) {
-      list.append(el('div', { class: 'empty' },
+      list.append(el('div', { class: 'empty-state' },
         `No stops in the roster for ${RC.dayNameOf(state.date)}.`,
         el('br'),
         el('button', { class: 'btn secondary', type: 'button', onclick: openDaySheet }, 'Pick another day or roster')));
@@ -453,11 +453,13 @@
 
   // ------------------------------------------------------------ misc
   let bannerTimer = null;
-  function showBanner(text, kind) {
+  function showBanner(text, kind, onTap) {
     const b = $('#banner');
     b.textContent = text; b.className = 'banner' + (kind ? ' ' + kind : ''); b.hidden = false;
+    b.onclick = onTap || null;
     clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(() => { b.hidden = true; }, 6000);
+    // an actionable banner stays until tapped; a notice fades
+    if (!onTap) bannerTimer = setTimeout(() => { b.hidden = true; }, 6000);
   }
 
   async function updateWakeLock() {
@@ -477,7 +479,9 @@
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
         nw && nw.addEventListener('statechange', () => {
-          if (nw.state === 'installed' && navigator.serviceWorker.controller) showBanner('Update ready. Close and reopen the app to get it.', 'info');
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            showBanner('A new version is ready. Tap here to reload.', 'info', () => location.reload());
+          }
         });
       });
     }).catch(() => { /* offline-first still works from cache */ });
