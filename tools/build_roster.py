@@ -12,6 +12,14 @@ Optionally a skeletons.json gives the known driver order per weekday as
 slotted next to their street-mates.
 
     python3 build_roster.py appearances.csv roster.json [--skeleton skeletons.json]
+        [--extra flags.csv] [--access customers.csv]
+
+--access takes the customer master exported from the office billing program, with
+at least the columns "Street (tracker)", "Number (text)", "Customer ID",
+"Schedule code", "Next pickup", "Recycling" (Y/N), "Pickup location code" (D/R),
+"Contract" (Y/N) and "Contract rate per pickup". It fills recycle/roadside/contract
+where the sheets left them blank and adds accessId/schedule/nextPickup to each stop.
+Truck observations from --extra are applied last and win.
 """
 import argparse
 import csv
@@ -163,6 +171,24 @@ def apply_skeleton(stops, skeleton):
     return result + leftovers
 
 
+def apply_access(stop, a):
+    """Fill a stop from the billing program's customer row; sheet flags already set are kept."""
+    stop["accessId"] = a.get("Customer ID") or None
+    stop["schedule"] = a.get("Schedule code") or None
+    stop["nextPickup"] = a.get("Next pickup") or None
+    if a.get("Recycling", "").upper() in ("Y", "N"):
+        stop["recycle"] = a["Recycling"].upper() == "Y"
+    loc = a.get("Pickup location code", "").upper()
+    if stop.get("roadside") is None and loc in ("R", "D"):
+        stop["roadside"] = loc == "R"
+    rate = a.get("Contract rate per pickup", "")
+    if not stop.get("contract") and a.get("Contract", "").upper() == "Y" and rate:
+        try:
+            stop["contract"] = f"${float(rate):.2f}"
+        except ValueError:
+            stop["contract"] = rate
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("appearances_csv")
@@ -170,6 +196,8 @@ def main():
     ap.add_argument("--skeleton", help="skeletons.json with known driver order per weekday")
     ap.add_argument("--extra", help="CSV of extra per-customer fields keyed by Day,Street,Number "
                                     "(e.g. recycle: 1 = yes, 0 = no, blank = unknown)")
+    ap.add_argument("--access", help="CSV exported from the billing program's customer table "
+                                     "(see module docstring for the columns used)")
     ap.add_argument("--label", default="", help="free-text label stored in the roster")
     args = ap.parse_args()
 
@@ -199,13 +227,32 @@ def main():
                           if k not in ("Day", "Street", "Number", "note")}
                 extra[(r["Day"], r["Street"], r["Number"])] = fields
 
+    access = {}
+    if args.access:
+        with open(args.access, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                r = {k.strip(): (v or "").strip() for k, v in r.items()}
+                access[(r["Street (tracker)"], r["Number (text)"])] = r
+
+    unmatched = []
     for day in DAYS:
         if day in by_day:
             d = build_day(day, by_day[day], skeletons.get(day))
             for s in d["stops"]:
                 s.setdefault("recycle", None)
-                s.update(extra.get((day, s["street"], s["number"]), {}))
+                a = access.get((s["street"], s["number"]))
+                if a:
+                    apply_access(s, a)
+                elif access:
+                    unmatched.append((day, s["street"], s["number"], s["name"]))
+                # truck observations win, but a blank in the extra file is "no information"
+                s.update({k: v for k, v in extra.get((day, s["street"], s["number"]), {}).items()
+                          if v is not None})
             roster["days"][day] = d
+    if unmatched:
+        print(f"{len(unmatched)} stops have no row in the --access file:", file=sys.stderr)
+        for u in unmatched:
+            print("   ", *u, file=sys.stderr)
 
     with open(args.roster_json, "w", encoding="utf-8") as f:
         json.dump(roster, f, indent=1, ensure_ascii=False)
