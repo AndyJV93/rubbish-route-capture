@@ -119,6 +119,15 @@ class DueTest(unittest.TestCase):
         self.assertEqual(schedule.due_reason(stopped, day, EXPORT), (False, "dormant or permanently stopped"))
         self.assertEqual([r["Last name"] for r in schedule.due_on(CUSTOMERS + [free, ended], day, EXPORT)].count("NOFEE"), 1)
 
+    def test_standby_is_the_weekday_customers_who_are_not_due(self):
+        day = date(2026, 1, 12)
+        names_ = sorted(r["Last name"] for r in schedule.standby_on(CUSTOMERS, day, EXPORT))
+        self.assertEqual(names_, ["AWAY", "BIWEEKLY-OFF", "ONCALL", "PUSHEDOUT", "THREEWEEK"])
+        # never the dormant, the stopped, another weekday's customers, or anyone already due
+        self.assertEqual(schedule.standby_on(CUSTOMERS, date(2026, 1, 14), EXPORT), [])
+        stopped = dict(CUSTOMERS[8], **{"Review note": "Permanent stop 12/01/2025"})      # an on-call account, closed
+        self.assertEqual(schedule.standby_on([stopped], day, EXPORT), [])
+
     def test_week_must_start_on_monday(self):
         with self.assertRaises(ValueError):
             schedule.week_days(date(2026, 1, 13))
@@ -143,10 +152,13 @@ class RosterTest(unittest.TestCase):
         roster, err = self.build()
         self.assertEqual(sorted(roster["days"]), ["Fri", "Mon", "Wed"])   # nobody is due Tue or Thu this week
         mon = roster["days"]["Mon"]
-        self.assertEqual([s["name"] for s in mon["stops"]], ["Weekly", "Biweekly-On", "Multi"])
+        listed = [s for s in mon["stops"] if s["onLastSheet"]]
+        self.assertEqual([s["name"] for s in listed], ["Weekly", "Biweekly-On", "Multi"])
         self.assertEqual(mon["lastSheet"], "2026-01-12")
-        self.assertTrue(all(s["onLastSheet"] for s in mon["stops"]))
-        multi = mon["stops"][2]
+        # not due that Monday, but one tap away: off week, pushed out, on hold, on call
+        tucked = sorted(s["name"] for s in mon["stops"] if not s["onLastSheet"])
+        self.assertEqual(tucked, ["Away", "Biweekly-Off", "Oncall", "Pushedout", "Threeweek"])
+        multi = listed[2]
         self.assertEqual((multi["contract"], multi["recycle"], multi["roadside"], multi["accessId"], multi["lastList"]),
                          ("$67.63", True, False, "6", "1"))
         self.assertEqual(roster["days"]["Wed"]["stops"][0]["lastList"], "2")
