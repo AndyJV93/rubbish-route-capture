@@ -34,7 +34,7 @@ import json
 import re
 import sys
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -211,7 +211,11 @@ def display_name(raw):
 
 
 def predicted_rows(access_rows, monday, export_date, names, dormant_days=56):
-    """Appearance-style rows for one week, from the schedule. names: {(street, number): display name}."""
+    """Appearance-style rows for one week, from the schedule. names: {(street, number): display name}.
+
+    Customers of the weekday who are not due (off week, skipped, on hold, on call) get a row dated
+    a week earlier: build_day then tucks them away (onLastSheet false), one tap from the list.
+    """
     rows, held = [], []
     horizon = schedule.printed_through(access_rows)
     for day in schedule.week_days(monday):
@@ -220,10 +224,12 @@ def predicted_rows(access_rows, monday, export_date, names, dormant_days=56):
             held.append((tag, a["Street (tracker)"], a["Number (text)"], a.get("Temp stop end", "")))
         due = schedule.due_on(access_rows, day, export_date, dormant_days, horizon)
         due.sort(key=lambda a: (a.get("Route list", ""), a["Street (tracker)"], house_sort_key(a["Number (text)"])))
-        for a in due:
+        standby = schedule.standby_on(access_rows, day, export_date, dormant_days, horizon) if due else []
+        standby.sort(key=lambda a: (a["Street (tracker)"], house_sort_key(a["Number (text)"])))
+        for a, when in [(a, day) for a in due] + [(a, day - timedelta(days=7)) for a in standby]:
             key = (a["Street (tracker)"], a["Number (text)"])
             lists = [x.strip() for x in a.get("Route list", "").split(";") if x.strip().startswith(tag)]
-            rows.append({"Date": day.isoformat(), "Day": tag,
+            rows.append({"Date": when.isoformat(), "Day": tag,
                          "List": (lists[0][-1:] if lists else ""),
                          "Street": key[0], "Number": key[1],
                          "Name": names.get(key) or display_name(a.get("Last name")),

@@ -102,6 +102,24 @@ def due_on(rows, day, export_date, dormant_days=56, horizon=None):
     return [r for r in rows if due_reason(r, day, export_date, dormant_days, horizon)[0]]
 
 
+STANDBY = ("on call", "on hold", "before next pickup date", "off week", "not this week of the month")
+
+
+def standby_on(rows, day, export_date, dormant_days=56, horizon=None):
+    """Customers of that weekday who are not due on the day but may still be picked up: on their
+    off week, skipped, on hold, or on call. The roster carries them tucked away, one tap from the
+    list, so the driver never has to type a customer in."""
+    out = []
+    for r in rows:
+        due, why = due_reason(r, day, export_date, dormant_days, horizon)
+        if due or why not in STANDBY or day.weekday() not in weekdays_of(r):
+            continue
+        if "permanent stop" in (r.get("Review note") or "").lower():
+            continue
+        out.append(r)
+    return out
+
+
 def held_on(rows, day, export_date, dormant_days=56, horizon=None):
     """Customers who would be due but for a temporary stop: worth showing the driver."""
     return [r for r in rows if due_reason(r, day, export_date, dormant_days, horizon) == (False, "on hold")]
