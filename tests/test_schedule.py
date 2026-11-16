@@ -105,6 +105,20 @@ class DueTest(unittest.TestCase):
         self.assertEqual(why["MONTHLY"], "not this weekday")
         self.assertEqual([r["Last name"] for r in schedule.held_on(CUSTOMERS, day, EXPORT)], ["AWAY"])
 
+    def test_a_running_no_fee_contract_is_never_dormant(self):
+        # never charged, so "Last pickup charged" is blank, yet the list prints them every week
+        fee = {"Contract": "Y", "No-fee contract": "Y"}
+        free = cust(20, "NOFEE", "Elm St", "8", "B1", "Mon", "2026-01-12", last="", **fee)
+        later = cust(21, "NOFEE-LATER", "Elm St", "9", "B1", "Mon", "2026-01-12", last="", **fee, **{"Contract end": "2026-06-30"})
+        ended = cust(22, "NOFEE-ENDED", "Elm St", "10", "B1", "Mon", "2026-01-12", last="", **fee, **{"Contract end": "2025-12-31"})
+        stopped = dict(free, **{"Review note": "Permanent stop 12/01/2025"})
+        day = date(2026, 1, 12)
+        self.assertEqual(schedule.due_reason(free, day, EXPORT), (True, ""))
+        self.assertEqual(schedule.due_reason(later, day, EXPORT), (True, ""))
+        self.assertEqual(schedule.due_reason(ended, day, EXPORT), (False, "dormant or permanently stopped"))
+        self.assertEqual(schedule.due_reason(stopped, day, EXPORT), (False, "dormant or permanently stopped"))
+        self.assertEqual([r["Last name"] for r in schedule.due_on(CUSTOMERS + [free, ended], day, EXPORT)].count("NOFEE"), 1)
+
     def test_week_must_start_on_monday(self):
         with self.assertRaises(ValueError):
             schedule.week_days(date(2026, 1, 13))

@@ -36,9 +36,17 @@ def nth_weekday(d):
 
 
 def is_live(row, export_date, dormant_days=56):
-    """Active in practice: charged a pickup recently and not permanently stopped."""
+    """Active in practice: charged a pickup recently and not permanently stopped.
+
+    A customer on a running no-fee contract is never charged, so the charge test cannot apply
+    to them: they stay live until the contract's end date, if it has one.
+    """
     if "permanent stop" in (row.get("Review note") or "").lower():
         return False
+    if (row.get("No-fee contract") or "").strip().upper() == "Y":
+        end = parse_date(row.get("Contract end"))
+        if end is None or end >= export_date:
+            return True
     last = parse_date(row.get("Last pickup charged"))
     return bool(last) and last >= export_date - timedelta(days=dormant_days)
 
