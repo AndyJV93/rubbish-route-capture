@@ -1,6 +1,6 @@
 /* Offline-first service worker: the app shell is cached on first visit and served
    from cache afterwards, so the app opens with no signal. Bump VERSION on every release. */
-const VERSION = 'rc-v1.1.2';
+const VERSION = 'rc-v1.1.3';
 const SHELL = [
   './',
   './index.html',

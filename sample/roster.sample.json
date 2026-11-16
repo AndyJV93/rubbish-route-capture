@@ -10,7 +10,7 @@
    "skeleton": {"confirmed": false, "notes": ""},
    "stops": [
     {"id": "mon-garage", "street": "Garage", "number": "-", "name": "Office dumpster", "contract": "$1.00", "roadside": null, "unsure": false, "seen": 2, "firstSeen": "2025-12-29", "lastSeen": "2026-01-05", "lastList": "1", "onLastSheet": true, "orderSource": "sheet"},
-    {"id": "mon-maple-st-4", "street": "Maple St", "number": "4", "name": "Example", "contract": null, "roadside": true, "unsure": false, "seen": 2, "firstSeen": "2025-12-29", "lastSeen": "2026-01-05", "lastList": "1", "onLastSheet": true, "orderSource": "sheet"},
+    {"id": "mon-maple-st-4", "street": "Maple St", "number": "4", "name": "Example", "savedNote": "Gate code 0000. Barrels go back in the garage.", "contract": null, "roadside": true, "unsure": false, "seen": 2, "firstSeen": "2025-12-29", "lastSeen": "2026-01-05", "lastList": "1", "onLastSheet": true, "orderSource": "sheet"},
     {"id": "mon-maple-st-11", "street": "Maple St", "number": "11", "name": "Sample", "contract": "$18.75", "roadside": null, "unsure": false, "seen": 2, "firstSeen": "2025-12-29", "lastSeen": "2026-01-05", "lastList": "1", "onLastSheet": true, "orderSource": "sheet"},
     {"id": "mon-oak-ln-2", "street": "Oak Ln", "number": "2", "name": "Placeholder", "contract": null, "roadside": null, "unsure": false, "seen": 1, "firstSeen": "2025-12-29", "lastSeen": "2025-12-29", "lastList": "2", "onLastSheet": false, "orderSource": "sheet"}
    ]

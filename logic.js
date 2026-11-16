@@ -54,6 +54,7 @@
       unsure: !!s.unsure,
       onLastSheet: s.onLastSheet !== false,
       orderSource: s.orderSource || 'sheet',
+      savedNote: typeof s.savedNote === 'string' ? s.savedNote.trim() : '',   // standing note from the roster, shown in the stop screen
       rosterIndex: i,
       // per-day capture
       seq: null,

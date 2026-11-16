@@ -182,6 +182,10 @@ button { font: inherit; color: inherit; }
 }
 .sheet-body textarea { min-height: 110px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; }
 .sheet-close { width: 100%; margin-top: 12px; }
+/* standing note from the roster (gate code, where the barrels go): only in the stop screen, never on the card */
+.saved-note { border: 2px solid var(--accent); border-radius: 12px; padding: 10px 12px; margin-bottom: 4px; background: var(--bg); }
+.saved-note-label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.saved-note-text { font-size: 19px; font-weight: 600; margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .daygrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
 .daygrid .btn { padding: 10px 0; }

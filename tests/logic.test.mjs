@@ -9,7 +9,7 @@ const roster = {
     Fri: {
       lastSheet: '2026-11-13', skeleton: { confirmed: true },
       stops: [
-        { id: 'a', street: 'Main St', number: '1', name: 'Alpha', onLastSheet: true, roadside: true },
+        { id: 'a', street: 'Main St', number: '1', name: 'Alpha', onLastSheet: true, roadside: true, savedNote: ' Gate code 0000. Barrels back in the garage. ' },
         { id: 'b', street: 'Main St', number: '7', name: 'Bravo', onLastSheet: true, contract: '$18.75' },
         { id: 'c', street: 'Oak Ln', number: '3', name: 'Charlie', onLastSheet: true, recycle: true },
         { id: 'd', street: 'Oak Ln', number: '9', name: 'Delta', onLastSheet: false }
@@ -27,6 +27,17 @@ test('createDay picks the weekday roster and tucks away off-sheet stops', () => 
   assert.deepEqual(RC.visibleStops(st).map(s => s.id), ['a', 'b', 'c']);
   assert.deepEqual(RC.hiddenStops(st).map(s => s.id), ['d']);
   assert.equal(RC.createDay('2026-11-14', roster).stops.length, 0, 'Saturday has no roster');
+});
+
+test('a saved note comes from the roster and is not part of the day export', () => {
+  const st = RC.createDay('2026-11-13', roster);
+  assert.equal(st.stops.find(s => s.id === 'a').savedNote, 'Gate code 0000. Barrels back in the garage.');
+  assert.equal(st.stops.find(s => s.id === 'b').savedNote, '');
+  RC.tap(st, 'a', min(1));
+  RC.setNote(st, 'a', 'two bags beside the barrel');
+  const csv = RC.toCsv(st);
+  assert.ok(csv.includes('two bags beside the barrel'), 'the day note is exported');
+  assert.ok(!csv.includes('Gate code 0000'), 'the saved note is not');
 });
 
 test('tap numbers stops in order and stamps time; re-tap is a no-op', () => {

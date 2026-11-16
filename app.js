@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.2';
+  const APP_VERSION = '1.1.3';
   const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', day: d => `rc.day.${d}` };
   const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 
@@ -118,7 +118,7 @@
     const hidden = RC.hiddenStops(state);
     if (hidden.length) {
       list.append(el('button', { class: 'section-toggle', type: 'button', onclick: openHiddenSheet },
-        `${hidden.length} not on the latest sheet… tap to add one back`));
+        `${hidden.length} not due today… tap to add one`));
     }
     if (settings.hideDone && sum.done) {
       list.append(el('button', { class: 'section-toggle', type: 'button',
@@ -182,6 +182,11 @@
     openSheet(`${s.number} ${s.street}`, body => {
       const act = (label, fn, cls = 'secondary') =>
         el('button', { class: `btn ${cls} block`, type: 'button', onclick: () => { fn(); save(); render(); closeSheet(); } }, label);
+      if (s.savedNote) {
+        body.append(el('div', { class: 'saved-note' },
+          el('div', { class: 'saved-note-label' }, 'Saved note'),
+          el('div', { class: 'saved-note-text' }, s.savedNote)));
+      }
       if (s.seq != null) {
         body.append(act(`Undo stop #${s.seq}`, () => RC.untap(state, id), 'danger'));
         body.append(act('Move earlier (swap with previous)', () => RC.move(state, id, -1)));
@@ -223,13 +228,13 @@
   }
 
   function openHiddenSheet() {
-    openSheet('Not on the latest sheet', body => {
+    openSheet('Not due today', body => {
       for (const s of RC.hiddenStops(state)) {
         body.append(el('button', { class: 'btn secondary block', type: 'button',
           onclick: () => { RC.unhide(state, s.id); save(); render(); closeSheet(); } },
           `${s.number} ${s.street} · ${s.name}`, el('small', null, s.lastSeen ? `  (last ${s.lastSeen})` : '')));
       }
-    }, 'Customers seen on earlier sheets for this weekday. Tap one to put it on today’s list.');
+    }, 'This weekday’s customers who are not on today’s list: off week, on hold or on call. Tap one to put it on today’s list.');
   }
 
   function openDaySheet() {
