@@ -14,5 +14,7 @@ jobs:
           node-version: 22
       - name: Logic tests
         run: node --test
+      - name: Roster tool tests (invented customers)
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v
       - name: No customer data in the repository
         run: python3 tools/check_no_customer_data.py

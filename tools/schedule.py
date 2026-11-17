@@ -1,0 +1,145 @@
+"""Who is due on a given day, from the billing program's customer export.
+
+Pure functions over rows of the customer CSV (see build_roster.py --access for the
+columns). No customer data lives in this file; tests use invented customers.
+
+Schedule codes:
+    B1 / B2 / B3   every 1 / 2 / 3 weeks on the same weekday, anchored on "Next pickup"
+    C1             monthly, same weekday-of-month as "Next pickup" (e.g. first Tuesday)
+    A + digits     several fixed weekdays every week; 2=Mon ... 6=Fri (A246 = Mon, Wed, Fri)
+"""
+from datetime import date, timedelta
+
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+WEEKS = {"B1": 1, "B2": 2, "B3": 3}
+
+
+def parse_date(s):
+    try:
+        return date.fromisoformat((s or "").strip())
+    except ValueError:
+        return None
+
+
+def weekdays_of(row):
+    """Weekday indexes (Mon=0) the customer is served on."""
+    code = (row.get("Schedule code") or "").strip().upper()
+    if code.startswith("A") and code[1:].isdigit():
+        return sorted({int(ch) - 2 for ch in code[1:] if "2" <= ch <= "8"})
+    days = [d.strip() for d in (row.get("Pickup day(s)") or "").replace(",", "/").split("/")]
+    return sorted({WEEKDAYS.index(d) for d in days if d in WEEKDAYS})
+
+
+def nth_weekday(d):
+    """(n, weekday): 2026-12-01 is the 1st Tuesday -> (1, 1)."""
+    return (d.day - 1) // 7 + 1, d.weekday()
+
+
+def is_live(row, export_date, dormant_days=56):
+    """Active in practice: charged a pickup recently and not permanently stopped.
+
+    A customer on a running no-fee contract is never charged, so the charge test cannot apply
+    to them: they stay live until the contract's end date, if it has one.
+
+    A temporary stop explains a gap in charges. A customer whose stop is still running, or ended
+    inside the window, is live however long ago the last charge was: they are coming back.
+    """
+    if "permanent stop" in (row.get("Review note") or "").lower():
+        return False
+    if (row.get("No-fee contract") or "").strip().upper() == "Y":
+        end = parse_date(row.get("Contract end"))
+        if end is None or end >= export_date:
+            return True
+    seen = [parse_date(row.get("Last pickup charged"))]
+    if parse_date(row.get("Temp stop start")):
+        seen.append(parse_date(row.get("Temp stop end")))
+    seen = [d for d in seen if d]
+    return bool(seen) and max(seen) >= export_date - timedelta(days=dormant_days)
+
+
+def on_hold(row, day):
+    start, end = parse_date(row.get("Temp stop start")), parse_date(row.get("Temp stop end"))
+    return bool(start and end and start <= day <= end)
+
+
+def printed_through(rows):
+    """Latest list date already printed when the file was exported. The billing program records the
+    charge, and moves "Next pickup" on, when a list is printed, which can be days ahead."""
+    dates = [d for d in (parse_date(r.get("Last pickup charged")) for r in rows) if d]
+    return max(dates) if dates else None
+
+
+def due_reason(row, day, export_date, dormant_days=56, horizon=None):
+    """Return (due, reason). reason says why not when due is False.
+
+    horizon: last date whose list was already printed at export time (see printed_through);
+    defaults to the export date."""
+    code = (row.get("Schedule code") or "").strip().upper()
+    nxt = parse_date(row.get("Next pickup"))
+    if not code:
+        return False, "no schedule code"
+    if (row.get("On call") or "").strip().upper() == "Y":
+        return False, "on call"
+    if day.weekday() not in weekdays_of(row):
+        return False, "not this weekday"
+    if not is_live(row, export_date, dormant_days):
+        stopped = "permanent stop" in (row.get("Review note") or "").lower()
+        if not stopped and nxt and nxt >= export_date:
+            # Nothing charged for weeks, yet the billing program still moves the next pickup
+            # forward. Such a customer is not printed as a rule, but now and then one comes back:
+            # never due, never dropped without a trace (see STANDBY).
+            return False, "no recent charge"
+        return False, "dormant or permanently stopped"
+    if on_hold(row, day):
+        return False, "on hold"
+    if code.startswith("A"):
+        return True, ""
+    if not nxt:
+        return False, "no next pickup date"
+    if (horizon or export_date) < day < nxt:
+        # The office skips a pickup by pushing "Next pickup" out. Looking forward, nothing is
+        # due before that date. (Looking back over past weeks this cannot be seen, so a
+        # back-test will list a customer who was skipped that way.)
+        return False, "before next pickup date"
+    if code in WEEKS:
+        due = (nxt - day).days % (7 * WEEKS[code]) == 0
+        return due, "" if due else "off week"
+    if code == "C1":
+        due = nth_weekday(day) == nth_weekday(nxt)
+        return due, "" if due else "not this week of the month"
+    return False, f"unknown schedule code {code}"
+
+
+def due_on(rows, day, export_date, dormant_days=56, horizon=None):
+    return [r for r in rows if due_reason(r, day, export_date, dormant_days, horizon)[0]]
+
+
+STANDBY = ("on call", "on hold", "before next pickup date", "off week", "not this week of the month",
+           "no recent charge")
+
+
+def standby_on(rows, day, export_date, dormant_days=56, horizon=None):
+    """Customers of that weekday who are not due on the day but may still be picked up: on their
+    off week, skipped, on hold, on call, or still on the schedule with nothing charged for weeks.
+    The roster carries them tucked away, one tap from the list, so the driver never has to type a
+    customer in and nobody on the schedule is left out without a trace."""
+    out = []
+    for r in rows:
+        due, why = due_reason(r, day, export_date, dormant_days, horizon)
+        if due or why not in STANDBY or day.weekday() not in weekdays_of(r):
+            continue
+        if "permanent stop" in (r.get("Review note") or "").lower():
+            continue
+        out.append(r)
+    return out
+
+
+def held_on(rows, day, export_date, dormant_days=56, horizon=None):
+    """Customers who would be due but for a temporary stop: worth showing the driver."""
+    return [r for r in rows if due_reason(r, day, export_date, dormant_days, horizon) == (False, "on hold")]
+
+
+def week_days(monday):
+    if monday.weekday() != 0:
+        raise ValueError(f"{monday} is not a Monday")
+    return [monday + timedelta(days=i) for i in range(5)]
