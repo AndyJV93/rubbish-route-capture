@@ -184,7 +184,7 @@ class RosterTest(unittest.TestCase):
         self.assertEqual(mon["lastSheet"], "2026-01-12")
         # not due that Monday, but one tap away: off week, pushed out, on hold, on call
         tucked = sorted(s["name"] for s in mon["stops"] if not s["onLastSheet"])
-        self.assertEqual(tucked, ["Away", "Biweekly-Off", "Oncall", "Pushedout", "Threeweek"])
+        self.assertEqual(tucked, ["Away", "Biweekly-Off", "Dormant", "Nevercharged", "Oncall", "Pushedout", "Threeweek"])
         multi = listed[2]
         self.assertEqual((multi["contract"], multi["recycle"], multi["roadside"], multi["accessId"], multi["lastList"]),
                          ("$67.63", True, False, "6", "1"))
