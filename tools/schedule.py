@@ -40,6 +40,9 @@ def is_live(row, export_date, dormant_days=56):
 
     A customer on a running no-fee contract is never charged, so the charge test cannot apply
     to them: they stay live until the contract's end date, if it has one.
+
+    A temporary stop explains a gap in charges. A customer whose stop is still running, or ended
+    inside the window, is live however long ago the last charge was: they are coming back.
     """
     if "permanent stop" in (row.get("Review note") or "").lower():
         return False
@@ -47,8 +50,11 @@ def is_live(row, export_date, dormant_days=56):
         end = parse_date(row.get("Contract end"))
         if end is None or end >= export_date:
             return True
-    last = parse_date(row.get("Last pickup charged"))
-    return bool(last) and last >= export_date - timedelta(days=dormant_days)
+    seen = [parse_date(row.get("Last pickup charged"))]
+    if parse_date(row.get("Temp stop start")):
+        seen.append(parse_date(row.get("Temp stop end")))
+    seen = [d for d in seen if d]
+    return bool(seen) and max(seen) >= export_date - timedelta(days=dormant_days)
 
 
 def on_hold(row, day):
@@ -77,6 +83,12 @@ def due_reason(row, day, export_date, dormant_days=56, horizon=None):
     if day.weekday() not in weekdays_of(row):
         return False, "not this weekday"
     if not is_live(row, export_date, dormant_days):
+        stopped = "permanent stop" in (row.get("Review note") or "").lower()
+        if not stopped and nxt and nxt >= export_date:
+            # Nothing charged for weeks, yet the billing program still moves the next pickup
+            # forward. Such a customer is not printed as a rule, but now and then one comes back:
+            # never due, never dropped without a trace (see STANDBY).
+            return False, "no recent charge"
         return False, "dormant or permanently stopped"
     if on_hold(row, day):
         return False, "on hold"
@@ -102,13 +114,15 @@ def due_on(rows, day, export_date, dormant_days=56, horizon=None):
     return [r for r in rows if due_reason(r, day, export_date, dormant_days, horizon)[0]]
 
 
-STANDBY = ("on call", "on hold", "before next pickup date", "off week", "not this week of the month")
+STANDBY = ("on call", "on hold", "before next pickup date", "off week", "not this week of the month",
+           "no recent charge")
 
 
 def standby_on(rows, day, export_date, dormant_days=56, horizon=None):
     """Customers of that weekday who are not due on the day but may still be picked up: on their
-    off week, skipped, on hold, or on call. The roster carries them tucked away, one tap from the
-    list, so the driver never has to type a customer in."""
+    off week, skipped, on hold, on call, or still on the schedule with nothing charged for weeks.
+    The roster carries them tucked away, one tap from the list, so the driver never has to type a
+    customer in and nobody on the schedule is left out without a trace."""
     out = []
     for r in rows:
         due, why = due_reason(r, day, export_date, dormant_days, horizon)

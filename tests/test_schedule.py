@@ -93,9 +93,9 @@ class DueTest(unittest.TestCase):
     def test_reasons_for_leaving_someone_off(self):
         day = date(2026, 1, 12)
         why = {r["Last name"]: schedule.due_reason(r, day, EXPORT)[1] for r in CUSTOMERS}
-        self.assertEqual(why["DORMANT"], "dormant or permanently stopped")
+        self.assertEqual(why["DORMANT"], "no recent charge")
         self.assertEqual(why["STOPPED"], "dormant or permanently stopped")
-        self.assertEqual(why["NEVERCHARGED"], "dormant or permanently stopped")
+        self.assertEqual(why["NEVERCHARGED"], "no recent charge")
         self.assertEqual(why["ONCALL"], "on call")
         self.assertEqual(why["AWAY"], "on hold")
         self.assertEqual(why["NOCODE"], "no schedule code")
@@ -115,15 +115,42 @@ class DueTest(unittest.TestCase):
         day = date(2026, 1, 12)
         self.assertEqual(schedule.due_reason(free, day, EXPORT), (True, ""))
         self.assertEqual(schedule.due_reason(later, day, EXPORT), (True, ""))
-        self.assertEqual(schedule.due_reason(ended, day, EXPORT), (False, "dormant or permanently stopped"))
+        self.assertEqual(schedule.due_reason(ended, day, EXPORT), (False, "no recent charge"))
         self.assertEqual(schedule.due_reason(stopped, day, EXPORT), (False, "dormant or permanently stopped"))
         self.assertEqual([r["Last name"] for r in schedule.due_on(CUSTOMERS + [free, ended], day, EXPORT)].count("NOFEE"), 1)
+
+    def test_a_customer_back_from_a_long_temporary_stop_is_due_again(self):
+        # no charge for seven months because of the stop, which ended a week before the export
+        gap = {"Temp stop start": "2025-06-10", "Temp stop end": "2025-12-29"}
+        back = cust(30, "BACK", "Elm St", "30", "B2", "Mon", "2026-01-12", last="2025-06-02", **gap)
+        day = date(2026, 1, 12)
+        self.assertEqual(schedule.due_reason(back, day, EXPORT), (True, ""))
+        self.assertEqual(schedule.due_reason(back, date(2026, 1, 19), EXPORT), (False, "off week"))
+        # still away: tucked away as on hold, not forgotten
+        away = dict(back, **{"Temp stop end": "2026-02-01"})
+        self.assertEqual(schedule.due_reason(away, day, EXPORT), (False, "on hold"))
+        self.assertEqual([r["Last name"] for r in schedule.standby_on([away], day, EXPORT)], ["BACK"])
+        # a stop that ended long ago explains nothing, and an end date without a start is not a stop
+        old = dict(back, **{"Temp stop end": "2025-08-01"})
+        self.assertFalse(schedule.is_live(old, EXPORT))
+        self.assertFalse(schedule.is_live(dict(back, **{"Temp stop start": ""}), EXPORT))
+
+    def test_nobody_still_on_the_schedule_is_dropped_without_a_trace(self):
+        day = date(2026, 1, 12)
+        quiet = next(r for r in CUSTOMERS if r["Last name"] == "DORMANT")       # next pickup still moving forward
+        self.assertEqual(schedule.due_reason(quiet, day, EXPORT), (False, "no recent charge"))
+        self.assertNotIn("DORMANT", names(day))
+        self.assertIn("DORMANT", [r["Last name"] for r in schedule.standby_on(CUSTOMERS, day, EXPORT)])
+        # the billing program stopped scheduling them: gone for good
+        gone = dict(quiet, **{"Next pickup": "2025-09-01"})
+        self.assertEqual(schedule.due_reason(gone, day, EXPORT), (False, "dormant or permanently stopped"))
+        self.assertEqual(schedule.standby_on([gone, dict(quiet, **{"Next pickup": ""})], day, EXPORT), [])
 
     def test_standby_is_the_weekday_customers_who_are_not_due(self):
         day = date(2026, 1, 12)
         names_ = sorted(r["Last name"] for r in schedule.standby_on(CUSTOMERS, day, EXPORT))
-        self.assertEqual(names_, ["AWAY", "BIWEEKLY-OFF", "ONCALL", "PUSHEDOUT", "THREEWEEK"])
-        # never the dormant, the stopped, another weekday's customers, or anyone already due
+        self.assertEqual(names_, ["AWAY", "BIWEEKLY-OFF", "DORMANT", "NEVERCHARGED", "ONCALL", "PUSHEDOUT", "THREEWEEK"])
+        # never the stopped, another weekday's customers, or anyone already due
         self.assertEqual(schedule.standby_on(CUSTOMERS, date(2026, 1, 14), EXPORT), [])
         stopped = dict(CUSTOMERS[8], **{"Review note": "Permanent stop 12/01/2025"})      # an on-call account, closed
         self.assertEqual(schedule.standby_on([stopped], day, EXPORT), [])
