@@ -40,6 +40,9 @@ def is_live(row, export_date, dormant_days=56):
 
     A customer on a running no-fee contract is never charged, so the charge test cannot apply
     to them: they stay live until the contract's end date, if it has one.
+
+    A temporary stop explains a gap in charges. A customer whose stop is still running, or ended
+    inside the window, is live however long ago the last charge was: they are coming back.
     """
     if "permanent stop" in (row.get("Review note") or "").lower():
         return False
@@ -47,8 +50,11 @@ def is_live(row, export_date, dormant_days=56):
         end = parse_date(row.get("Contract end"))
         if end is None or end >= export_date:
             return True
-    last = parse_date(row.get("Last pickup charged"))
-    return bool(last) and last >= export_date - timedelta(days=dormant_days)
+    seen = [parse_date(row.get("Last pickup charged"))]
+    if parse_date(row.get("Temp stop start")):
+        seen.append(parse_date(row.get("Temp stop end")))
+    seen = [d for d in seen if d]
+    return bool(seen) and max(seen) >= export_date - timedelta(days=dormant_days)
 
 
 def on_hold(row, day):

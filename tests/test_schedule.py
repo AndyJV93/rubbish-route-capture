@@ -119,6 +119,22 @@ class DueTest(unittest.TestCase):
         self.assertEqual(schedule.due_reason(stopped, day, EXPORT), (False, "dormant or permanently stopped"))
         self.assertEqual([r["Last name"] for r in schedule.due_on(CUSTOMERS + [free, ended], day, EXPORT)].count("NOFEE"), 1)
 
+    def test_a_customer_back_from_a_long_temporary_stop_is_due_again(self):
+        # no charge for seven months because of the stop, which ended a week before the export
+        gap = {"Temp stop start": "2025-06-10", "Temp stop end": "2025-12-29"}
+        back = cust(30, "BACK", "Elm St", "30", "B2", "Mon", "2026-01-12", last="2025-06-02", **gap)
+        day = date(2026, 1, 12)
+        self.assertEqual(schedule.due_reason(back, day, EXPORT), (True, ""))
+        self.assertEqual(schedule.due_reason(back, date(2026, 1, 19), EXPORT), (False, "off week"))
+        # still away: tucked away as on hold, not forgotten
+        away = dict(back, **{"Temp stop end": "2026-02-01"})
+        self.assertEqual(schedule.due_reason(away, day, EXPORT), (False, "on hold"))
+        self.assertEqual([r["Last name"] for r in schedule.standby_on([away], day, EXPORT)], ["BACK"])
+        # a stop that ended long ago explains nothing, and an end date without a start is not a stop
+        old = dict(back, **{"Temp stop end": "2025-08-01"})
+        self.assertFalse(schedule.is_live(old, EXPORT))
+        self.assertFalse(schedule.is_live(dict(back, **{"Temp stop start": ""}), EXPORT))
+
     def test_standby_is_the_weekday_customers_who_are_not_due(self):
         day = date(2026, 1, 12)
         names_ = sorted(r["Last name"] for r in schedule.standby_on(CUSTOMERS, day, EXPORT))
