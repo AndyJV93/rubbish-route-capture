@@ -2,9 +2,12 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.3';
+  const APP_VERSION = '1.1.4';
   const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', savedNotes: 'rc.savedNotes', day: d => `rc.day.${d}` };
   const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  // The tracker's doorway: a Google Apps Script web app. Its address is the secret, so it is only
+  // ever typed into this phone. Nothing else is accepted as a list link.
+  const LIST_LINK = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
   // A sheet of paper with a folded corner. Drawn, not a character, so every phone shows the same mark.
   const NOTE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10v7.5l-3.5 3.5H3z M9.5 13.5V10H13 M5.5 5.5h5 M5.5 8h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -71,6 +74,92 @@
     }
     store.set(KEYS.current, isoDate);
     render();
+  }
+
+  // ------------------------------------------------------------ the list from the tracker
+  let listBusy = false;
+
+  /** Read the list page from the tracker. Says nothing unless the list changed, or `loud`. */
+  async function refreshList(loud) {
+    if (!settings.listUrl || listBusy) return;
+    if (!navigator.onLine) {
+      if (loud) showBanner('No signal. Still using the list on the phone.');
+      warnIfStale(); return;
+    }
+    listBusy = true;
+    try {
+      const res = await fetch(settings.listUrl, { cache: 'no-store', redirect: 'follow' });
+      if (!res.ok) throw new Error('the tracker answered ' + res.status);
+      let payload;
+      try { payload = JSON.parse(await res.text()); }
+      catch { throw new Error('the link did not answer with a list. Check the link, and that the tracker lets anyone with the link read it'); }
+      const next = RC.rosterFromList(payload);
+      settings.listReadAt = Date.now(); settings.listError = null; saveSettings();
+      if (JSON.stringify(next) !== JSON.stringify(roster)) takeNewList(next);
+      else if (loud) showBanner('The list is up to date.', 'info');
+    } catch (e) {
+      settings.listError = String((e && e.message) || e); saveSettings();
+      if (loud) showBanner('Could not read the list: ' + settings.listError);
+    } finally {
+      listBusy = false;
+      warnIfStale();
+    }
+  }
+
+  function takeNewList(next) {
+    roster = next;
+    store.set(KEYS.roster, roster);
+    savedNotes = RC.pruneSavedNotes(savedNotes, roster);
+    store.set(KEYS.savedNotes, savedNotes);
+    const today = RC.todayIso();
+    if (state && state.date === today && RC.dayIsUntouched(state)) {
+      // nothing tapped yet today: start the day over on the new list
+      store.del(KEYS.day(state.date));
+      loadDay(state.date, { rosterDay: state.rosterDay });
+      showBanner('List updated from the tracker.', 'info');
+    } else {
+      if (state) RC.refreshSavedNotes(state, roster, savedNotes);
+      render();
+      if (state && state.date === today) showBanner('A newer list came in. Today keeps the list it started with.', 'info');
+    }
+  }
+
+  /** Say so, and keep saying so, when today's list was made for another date. */
+  function warnIfStale() {
+    if (!state || !roster || state.rosterDay || state.date !== RC.todayIso()) return;
+    const madeFor = RC.listDateFor(roster, state.day);
+    if (!madeFor || madeFor === state.date) return;
+    showBanner(`This list was made for ${madeFor}, not for today. Tap for the list settings.`, null, openListSheet);
+  }
+
+  function openListSheet() {
+    openSheet('List from the tracker', body => {
+      if (settings.listUrl) {
+        const when = settings.listReadAt
+          ? new Date(settings.listReadAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'not yet';
+        body.append(el('div', { class: 'fine' }, `Link saved. Last read: ${when}.`, el('br'),
+          roster ? `List on the phone: ${roster.label || 'no name'} (built ${roster.generated || '?'})` : 'No list on the phone yet.',
+          settings.listError ? el('br') : null, settings.listError ? `Last problem: ${settings.listError}` : null));
+        body.append(el('button', { class: 'btn primary block', type: 'button',
+          onclick: () => { closeSheet(); refreshList(true); } }, 'Read the list now'));
+        body.append(el('button', { class: 'btn secondary block', type: 'button', onclick: () => {
+          if (!confirmInline(body, 'Remove the link? The phone keeps the list it has.')) return;
+          delete settings.listUrl; delete settings.listError; saveSettings(); closeSheet();
+        } }, 'Remove the link'));
+      } else {
+        const link = el('input', { type: 'url', class: 'list-link', placeholder: 'https://script.google.com/macros/s/…/exec',
+          autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+        body.append(el('label', null, 'Paste the link from the tracker. You do this once.'), link);
+        body.append(el('button', { class: 'btn primary block', type: 'button', onclick: () => {
+          const v = link.value.trim();
+          if (!LIST_LINK.test(v)) {
+            showBanner('That is not the tracker link. It starts with https://script.google.com/macros/s/ and ends with /exec');
+            return;
+          }
+          settings.listUrl = v; saveSettings(); closeSheet(); refreshList(true);
+        } }, 'Save and read the list'));
+      }
+    }, 'The app reads the route list from the tracker by itself each time it opens.');
   }
 
   // ------------------------------------------------------------ rendering
@@ -345,6 +434,7 @@
     openSheet('Menu', body => {
       const act = (label, fn) => el('button', { class: 'btn secondary block', type: 'button', onclick: fn }, label);
       body.append(act('Change day / saved days', openDaySheet));
+      body.append(act('List from the tracker', openListSheet));
       body.append(act('Load roster', openRosterSheet));
       body.append(act(settings.hideDone ? 'Show done stops' : 'Hide done stops', () => { settings.hideDone = !settings.hideDone; saveSettings(); render(); closeSheet(); }));
       const awake = el('input', { type: 'checkbox' });
@@ -520,8 +610,12 @@
     $('#addBtn').addEventListener('click', openAddSheet);
     $('#completeBtn').addEventListener('click', openCompleteSheet);
     $('#sheet').addEventListener('click', e => { if (e.target === e.currentTarget || e.target.hasAttribute('data-close')) closeSheet(); });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { updateWakeLock(); render(); } });
-    window.addEventListener('online', () => render());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      updateWakeLock(); render();
+      if (Date.now() - (settings.listReadAt || 0) > 15 * 60 * 1000) refreshList(false);   // look again after a while away
+    });
+    window.addEventListener('online', () => { render(); refreshList(false); });
     window.addEventListener('offline', () => render());
 
     const today = RC.todayIso();
@@ -532,12 +626,13 @@
       if (st && !st.completedAt && st.stops.some(s => s.seq != null)) {
         loadDay(current);
         showBanner(`Showing ${current}: it was never completed. Change day from the top-left.`);
-        registerSw(); updateWakeLock(); return;
+        registerSw(); updateWakeLock(); refreshList(false); return;
       }
     }
     loadDay(today);
     registerSw();
     updateWakeLock();
+    if (settings.listUrl) refreshList(false); else warnIfStale();
     // Demo mode: open index.html#demo to try the app with the fictional sample roster.
     if (!roster && location.hash === '#demo') {
       try {

@@ -245,3 +245,72 @@ test('a note kept on the phone is dropped once the roster carries the same words
   assert.deepEqual(Object.keys(left).sort(), [RC.noteKey('Elm St', '5'), RC.noteKey('Main St', '7')].sort());
   assert.deepEqual(RC.pruneSavedNotes(undefined, roster), {});
 });
+
+// ---- the list read from the tracker
+const TITLES = ['Day', 'Pos', 'Street', 'Number', 'Name', 'Listed', 'Roadside', 'Recycle', 'Contract', 'Check number',
+  'Order source', 'Stop id', 'Access ID', 'Schedule', 'Next pickup', 'Hold', 'Hold until', 'Office note', 'List date', 'Order confirmed'];
+const listPage = () => ({
+  format: 'route-capture-list', version: 1,
+  meta: ['Phone list', 'Week of 2026-11-09', 'Built', '2026-11-08', 'Rows', '4'],
+  titles: TITLES,
+  rows: [
+    ['Fri', '2', 'Main St', '7', 'Bravo', 'yes', 'no', '', '$18.75', '', 'driver', 'fri-main-st-7', '102', 'B1', '2026-11-13', '', '', '', '2026-11-13', 'yes'],
+    ['Fri', '1', 'Main St', '1', 'Alpha', 'yes', 'yes', 'yes', '', 'yes', 'slotted', 'fri-main-st-1', '101', 'B2', '2026-11-13', '', '', '', '2026-11-13', 'yes'],
+    ['Fri', '3', 'Oak Ln', '9', 'Delta', 'no', '', 'no', '', '', 'driver', 'fri-oak-ln-9', '', '', '', '', '', '', '2026-11-13', 'yes'],
+    ['Mon', '1', 'Elm St', '5', 'Echo', 'yes', 'no', 'yes', '', '', 'driver', 'mon-elm-st-5', '', '', '', '', '', '', '2026-11-09', 'no'],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
+  ],
+  notes: [{ street: 'main st', number: 1, note: ' Gate code 0000 ' }, { street: 'Nowhere Rd', number: '2', note: 'not on the list' }, { street: 'Oak Ln', number: '9', note: '' }]
+});
+
+test('the list page from the tracker becomes the roster, in route order, with saved notes joined on', () => {
+  const r = RC.rosterFromList(listPage());
+  assert.deepEqual(RC.validateRoster(r), []);
+  assert.equal(r.label, 'Week of 2026-11-09');
+  assert.equal(r.generated, '2026-11-08');
+  assert.deepEqual(Object.keys(r.days), ['Mon', 'Fri']);
+  assert.deepEqual(r.days.Fri.stops.map(s => s.number), ['1', '7', '9']);
+  const [a, b, d] = r.days.Fri.stops;
+  assert.deepEqual([a.roadside, a.recycle, a.unsure, a.onLastSheet, a.orderSource, a.savedNote], [true, true, true, true, 'slotted', 'Gate code 0000']);
+  assert.deepEqual([b.roadside, b.recycle, b.contract, b.savedNote], [false, null, '$18.75', undefined]);
+  assert.equal(d.onLastSheet, false);
+  assert.equal(r.days.Fri.lastSheet, '2026-11-13');
+  assert.equal(r.days.Mon.skeleton.confirmed, false);
+  // and a day built from it works like any other
+  const st = RC.createDay('2026-11-13', r);
+  assert.equal(RC.visibleStops(st).length, 2);
+  assert.equal(st.stops[0].savedNote, 'Gate code 0000');
+});
+
+test('the same page gives the same roster, so an unchanged list is recognised', () => {
+  assert.equal(JSON.stringify(RC.rosterFromList(listPage())), JSON.stringify(RC.rosterFromList(listPage())));
+  const moved = listPage();
+  const order = TITLES.map((_, i) => i).reverse();
+  moved.titles = order.map(i => TITLES[i]);
+  moved.rows = moved.rows.map(r => order.map(i => r[i]));
+  assert.equal(JSON.stringify(RC.rosterFromList(moved)), JSON.stringify(RC.rosterFromList(listPage())));
+});
+
+test('a page that is not a list is refused with the reason', () => {
+  assert.throws(() => RC.rosterFromList({ error: 'No "Phone list" tab' }), /No "Phone list" tab/);
+  assert.throws(() => RC.rosterFromList({ titles: ['Day', 'Street'], rows: [] }), /missing: Number, Name, Listed, Stop id/);
+  assert.throws(() => RC.rosterFromList({ ...listPage(), rows: [] }), /no stops/);
+  assert.throws(() => RC.rosterFromList(null), /nothing readable/);
+});
+
+test('a day is untouched until something is recorded on it', () => {
+  const touch = fn => { const st = RC.createDay('2026-11-13', roster); fn(st); return RC.dayIsUntouched(st); };
+  assert.equal(touch(() => {}), true);
+  assert.equal(touch(st => RC.tap(st, 'a', T0)), false);
+  assert.equal(touch(st => RC.toggleSkip(st, 'b')), false);
+  assert.equal(touch(st => RC.setNote(st, 'c', 'back in')), false);
+  assert.equal(touch(st => RC.setSavedNote(st, 'c', 'dog')), false);
+  assert.equal(touch(st => RC.unhide(st, 'd')), false);
+  assert.equal(touch(st => RC.addStop(st, { street: 'Elm St', number: '5', name: 'New' }, T0)), false);
+});
+
+test('the date a weekday list was made for', () => {
+  assert.equal(RC.listDateFor(roster, 'Fri'), '2026-11-13');
+  assert.equal(RC.listDateFor(roster, 'Mon'), null);
+  assert.equal(RC.listDateFor(null, 'Fri'), null);
+});

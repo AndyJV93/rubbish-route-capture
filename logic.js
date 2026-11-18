@@ -349,6 +349,64 @@
     };
   }
 
+  /** Nothing recorded yet, so the day can be rebuilt from a newer list without losing anything. */
+  function dayIsUntouched(state) {
+    return !state.completedAt && state.stops.every(s => s.seq == null && !s.skipped && !s.added && !s.note
+      && !s.savedNoteChanged && s.cans == null && s.recycling == null && !!s.hidden === (s.onLastSheet === false));
+  }
+
+  /** The date a weekday's list was made for, or null when the roster does not say. */
+  function listDateFor(roster, dayKey) {
+    const d = roster && roster.days && roster.days[dayKey];
+    return (d && d.lastSheet) || null;
+  }
+
+  /** The roster, from the tracker's list page as its doorway serves it:
+      { meta: [...first line], titles: [...], rows: [[...]], notes: [{street, number, note}] }.
+      Read by column title, so columns may move. Saved notes are joined on by address. */
+  function rosterFromList(payload) {
+    if (!payload || typeof payload !== 'object') throw new Error('the tracker sent nothing readable');
+    if (payload.error) throw new Error('the tracker answered: ' + payload.error);
+    const col = {};
+    (payload.titles || []).forEach((t, i) => { col[String(t).trim()] = i; });
+    const need = ['Day', 'Street', 'Number', 'Name', 'Listed', 'Stop id'].filter(c => !(c in col));
+    if (need.length) throw new Error('the list page is missing: ' + need.join(', '));
+    const get = (r, name) => (name in col && r[col[name]] != null ? String(r[col[name]]).trim() : '');
+    const yn = v => (v === '' ? null : v.toLowerCase() === 'yes');
+    const notes = {};
+    for (const n of (payload.notes || [])) {
+      const text = String((n && n.note) || '').trim();
+      if (text) notes[noteKey(n.street, n.number)] = text;
+    }
+    const days = {};
+    for (const r of (payload.rows || [])) {
+      const day = get(r, 'Day');
+      if (!DAY_KEYS.includes(day)) continue;
+      const d = days[day] = days[day] || { lastSheet: get(r, 'List date') || null,
+        skeleton: { confirmed: get(r, 'Order confirmed') === 'yes' }, stops: [] };
+      const stop = {
+        id: get(r, 'Stop id'), street: get(r, 'Street'), number: get(r, 'Number'), name: get(r, 'Name'),
+        contract: get(r, 'Contract') || null, roadside: yn(get(r, 'Roadside')), recycle: yn(get(r, 'Recycle')),
+        unsure: get(r, 'Check number') === 'yes', onLastSheet: get(r, 'Listed').toLowerCase() !== 'no',
+        orderSource: get(r, 'Order source') || 'sheet'
+      };
+      const note = notes[noteKey(stop.street, stop.number)];
+      if (note) stop.savedNote = note;
+      d.stops.push([Number(get(r, 'Pos')) || 0, d.stops.length, stop]);
+    }
+    const ordered = {};
+    for (const k of DAY_KEYS) {
+      if (days[k]) ordered[k] = { ...days[k], stops: days[k].stops.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]) };
+    }
+    const meta = payload.meta || [];
+    const roster = { format: 'route-capture-roster', version: 1, label: String(meta[1] || ''),
+      generated: String(meta[3] || ''), source: 'tracker', days: ordered };
+    const problems = validateRoster(roster);
+    if (!Object.keys(ordered).length) problems.push('no stops on the list page');
+    if (problems.length) throw new Error('the list page has problems: ' + problems.slice(0, 3).join('; '));
+    return roster;
+  }
+
   function fileStem(state) {
     return `${state.date} ${state.day} Route Log`;
   }
@@ -379,6 +437,6 @@
     refreshSavedNotes, pruneSavedNotes, toggleSkip, toggleRoadside,
     toggleHasRecycle, unhide, addStop,
     complete, reopen, visibleStops, hiddenStops, groupByStreet, orderedStops, summary,
-    toCsv, toJson, pdfRows, fileStem, validateRoster
+    toCsv, toJson, pdfRows, fileStem, validateRoster, rosterFromList, dayIsUntouched, listDateFor
   };
 }));

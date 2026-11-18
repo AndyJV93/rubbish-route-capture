@@ -1,6 +1,6 @@
 /* Offline-first service worker: the app shell is cached on first visit and served
    from cache afterwards, so the app opens with no signal. Bump VERSION on every release. */
-const VERSION = 'rc-v1.1.3';
+const VERSION = 'rc-v1.1.4';
 const SHELL = [
   './',
   './index.html',
@@ -33,6 +33,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
+  // Only the app's own files and the PDF library go through the cache. Anything else, the list
+  // from the tracker above all, goes straight to the network and is never stored here.
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin && !req.url.includes('cdnjs.cloudflare.com')) return;
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then(hit => {
       const network = fetch(req).then(res => {

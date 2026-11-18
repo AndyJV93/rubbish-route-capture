@@ -12,6 +12,11 @@ Built for a phone in a truck cab: big tap targets, one hand, no sign-in, no serv
 - **Add stop** for a customer on the paper sheet who isn't in the app yet.
 - **Complete route** → PDF for the office and CSV/JSON for the data, shared through the phone's
   share sheet (Drive, email, text) or saved to Downloads.
+- **The list comes by itself.** Paste one link in the Menu, once, and the app reads the route list from the
+  tracker spreadsheet every time it opens (`tools/tracker_doorway.gs` is the small script that goes in the
+  spreadsheet). A day with nothing recorded yet follows a changed list; a day in progress keeps its own.
+  If today's list was made for another date, the app says so until it is dealt with. Loading a roster file
+  still works.
 - **Works offline.** Everything is stored on the phone and survives refresh and restart.
   Signal is only needed once, to install, and when you share the export.
 

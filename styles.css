@@ -181,7 +181,7 @@ button { font: inherit; color: inherit; }
 .sheet-title { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
 .sheet-sub { color: var(--muted); font-size: 15px; margin-bottom: 12px; }
 .sheet-body label { display: block; font-size: 15px; color: var(--muted); margin: 12px 0 4px; }
-.sheet-body input[type=text], .sheet-body input[type=date], .sheet-body textarea, .sheet-body select {
+.sheet-body input[type=text], .sheet-body input[type=url], .sheet-body input[type=date], .sheet-body textarea, .sheet-body select {
   width: 100%; font: inherit; font-size: 18px; padding: 12px; border-radius: 12px;
   border: 2px solid var(--line); background: var(--bg); color: var(--ink);
 }
