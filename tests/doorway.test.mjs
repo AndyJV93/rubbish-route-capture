@@ -6,12 +6,13 @@ import { createRequire } from 'node:module';
 const RC = createRequire(import.meta.url)('../logic.js');
 const source = readFileSync(new URL('../tools/tracker_doorway.gs', import.meta.url), 'utf8');
 
-function serve(pages) {
+function serve(pages, e, raw) {
   const SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: name => (name in pages
     ? { getDataRange: () => ({ getDisplayValues: () => pages[name] }) } : null) }) };
-  const ContentService = { MimeType: { JSON: 'json' },
+  const ContentService = { MimeType: { JSON: 'json', JAVASCRIPT: 'javascript' },
     createTextOutput: text => ({ text, setMimeType(type) { this.type = type; return this; } }) };
-  const out = new Function('SpreadsheetApp', 'ContentService', source + '\nreturn doGet();')(SpreadsheetApp, ContentService);
+  const out = new Function('SpreadsheetApp', 'ContentService', 'e', source + '\nreturn doGet(e);')(SpreadsheetApp, ContentService, e);
+  if (raw) return out;
   assert.equal(out.type, 'json');
   return JSON.parse(out.text);
 }
@@ -42,4 +43,21 @@ test('the doorway says what is wrong instead of failing', () => {
   assert.match(serve({ 'Phone list': LIST.slice(0, 2) }).error, /empty/);
   assert.throws(() => RC.rosterFromList(serve({})), /no "Phone list" page/);
   assert.deepEqual(serve({ 'Phone list': LIST }).notes, []);
+});
+
+test('asked with a callback name, the doorway answers as a script that hands over the same list', () => {
+  const out = serve({ 'Phone list': LIST, 'Phone notes': NOTES }, { parameter: { callback: '__rcList1a2b' } }, true);
+  assert.equal(out.type, 'javascript');
+  let got = null;
+  new Function('__rcList1a2b', out.text)(payload => { got = payload; });
+  assert.deepEqual(got.rows, LIST.slice(2));
+  assert.deepEqual(RC.rosterFromList(got).days.Mon.stops.map(s => s.number), ['4', '11']);
+});
+
+test('a callback name that is not a plain name is ignored', () => {
+  for (const bad of ['alert(1)//', 'a.b', 'x;y', '']) {
+    const out = serve({ 'Phone list': LIST }, { parameter: { callback: bad } }, true);
+    assert.equal(out.type, 'json');
+    assert.doesNotThrow(() => JSON.parse(out.text));
+  }
 });

@@ -9,8 +9,11 @@
  *
  * It only reads. It answers with the "Phone list" page as it stands and the saved notes from the
  * "Phone notes" page, and with nothing else from the spreadsheet.
+ *
+ * Asked with ?callback=name it answers as a script that calls name(list). That is how a web page
+ * reads it when the browser will not let the page read the plain answer.
  */
-function doGet() {
+function doGet(e) {
   var out;
   try {
     var book = SpreadsheetApp.getActiveSpreadsheet();
@@ -24,6 +27,10 @@ function doGet() {
     };
   } catch (err) {
     out = { format: 'route-capture-list', version: 1, error: String((err && err.message) || err) };
+  }
+  var callback = e && e.parameter && e.parameter.callback;
+  if (callback && /^[A-Za-z_$][A-Za-z0-9_$]{0,60}$/.test(callback)) {
+    return ContentService.createTextOutput(callback + '(' + JSON.stringify(out) + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }

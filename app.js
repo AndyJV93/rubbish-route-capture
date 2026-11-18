@@ -88,11 +88,13 @@
     }
     listBusy = true;
     try {
-      const res = await fetch(settings.listUrl, { cache: 'no-store', redirect: 'follow' });
-      if (!res.ok) throw new Error('the tracker answered ' + res.status);
       let payload;
-      try { payload = JSON.parse(await res.text()); }
-      catch { throw new Error('the link did not answer with a list. Check the link, and that the tracker lets anyone with the link read it'); }
+      try { payload = await readListPlain(settings.listUrl); }
+      catch (first) {
+        // Some browsers will not let a page read the plain answer. Asking for it as a script always works.
+        try { payload = await readListAsScript(settings.listUrl); }
+        catch { throw first; }
+      }
       const next = RC.rosterFromList(payload);
       settings.listReadAt = Date.now(); settings.listError = null; saveSettings();
       if (JSON.stringify(next) !== JSON.stringify(roster)) takeNewList(next);
@@ -104,6 +106,26 @@
       listBusy = false;
       warnIfStale();
     }
+  }
+
+  async function readListPlain(url) {
+    const res = await fetch(url, { cache: 'no-store', redirect: 'follow' });
+    if (!res.ok) throw new Error('the tracker answered ' + res.status);
+    try { return JSON.parse(await res.text()); }
+    catch { throw new Error('the link did not answer with a list. Check the link, and that the tracker lets anyone with the link read it'); }
+  }
+
+  function readListAsScript(url) {
+    return new Promise((resolve, reject) => {
+      const name = '__rcList' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+      const tag = document.createElement('script');
+      const finish = (fn, value) => { clearTimeout(timer); delete window[name]; tag.remove(); fn(value); };
+      const timer = setTimeout(() => finish(reject, new Error('the tracker did not answer')), 20000);
+      window[name] = payload => finish(resolve, payload);
+      tag.onerror = () => finish(reject, new Error('the tracker could not be reached'));
+      tag.src = url + '?callback=' + name;
+      document.head.append(tag);
+    });
   }
 
   function takeNewList(next) {
