@@ -120,6 +120,11 @@ button { font: inherit; color: inherit; }
 .tag.contract { background: var(--warn-bg); color: var(--warn); }
 .tag.unsure, .tag.new { background: var(--skip-bg); color: var(--skip); }
 .tag.time { background: transparent; color: var(--muted); padding: 0; }
+/* the note mark is exactly as tall as a tag with words (the empty ::before gives it a text line),
+   so a card is the same size with the mark as it was with the note's words */
+.tag.note-mark { display: inline-flex; align-items: center; padding: 0 5px; background: var(--warn-bg); color: var(--warn); }
+.tag.note-mark::before { content: "\200b"; }
+.tag.note-mark svg { width: 13px; height: 13px; display: block; }
 /* flex items default to min-width:auto, which lets a <select> grow to its longest option;
    pin both the width and the minimum so the two counters are always 66px each */
 .counts { display: flex; gap: 8px; flex: 0 0 auto; }

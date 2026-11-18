@@ -5,6 +5,9 @@ the order the driver takes the stops, the time at each one, and how many cans we
 Built for a phone in a truck cab: big tap targets, one hand, no sign-in, no server.
 
 - **Tap a stop** → it gets the next number and a timestamp. Tap the number to undo, reorder, skip or add a note.
+- **Two kinds of note**, both in the stop screen: a *note for today* (this pickup only, goes into the day's log)
+  and a *saved note* that stays with the customer and is shown first at every visit. A card never shows
+  note words, only a small mark when there is something to read.
 - **Cans 0–15** per stop. Picking a count on an untapped stop also stamps the time (0 = nothing out).
 - **Add stop** for a customer on the paper sheet who isn't in the app yet.
 - **Complete route** → PDF for the office and CSV/JSON for the data, shared through the phone's
@@ -34,7 +37,7 @@ See `tools/build_roster.py --help` and `sample/` for a small fake example.
 | File | Contents |
 |---|---|
 | `YYYY-MM-DD Day Route Log.pdf` | Ordered table for the office: #, time, address, name, cans, flags, note; then skipped and not-done stops |
-| `… Route Log.csv` | Same, one row per stop, status column `done` / `skipped` / `not_done` |
+| `… Route Log.csv` | Same, one row per stop, status column `done` / `skipped` / `not_done`. The last column, `saved_note`, is filled only for a stop whose saved note was changed on the phone that day |
 | `… Route Log.json` | Complete app state for the day, for loading into other tools |
 
 ## Development

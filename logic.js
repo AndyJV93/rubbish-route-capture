@@ -39,8 +39,22 @@
     return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
   }
 
-  /** A fresh day's state from the roster for that weekday. */
-  function createDay(isoDate, roster) {
+  /** Address key for a note that stays with a customer: the same on every weekday. */
+  function noteKey(street, number) {
+    const t = v => String(v == null ? '' : v).trim().toLowerCase();
+    return `${t(street)}|${t(number)}`;
+  }
+
+  /** The saved note for a roster stop. A note kept on this phone ({noteKey: {text, at}}) wins over
+      the roster's, so a note typed on the truck shows at the next visit without a new roster. */
+  function savedNoteFor(s, savedNotes) {
+    const own = savedNotes && savedNotes[noteKey(s.street, s.number)];
+    if (own && typeof own.text === 'string') return own.text.trim();
+    return typeof s.savedNote === 'string' ? s.savedNote.trim() : '';
+  }
+
+  /** A fresh day's state from the roster for that weekday. savedNotes: the notes kept on this phone. */
+  function createDay(isoDate, roster, savedNotes) {
     const key = dayKeyOf(isoDate);
     const day = roster && roster.days && roster.days[key];
     const stops = (day ? day.stops : []).map((s, i) => ({
@@ -54,7 +68,7 @@
       unsure: !!s.unsure,
       onLastSheet: s.onLastSheet !== false,
       orderSource: s.orderSource || 'sheet',
-      savedNote: typeof s.savedNote === 'string' ? s.savedNote.trim() : '',   // standing note from the roster, shown in the stop screen
+      savedNote: savedNoteFor(s, savedNotes),   // stays with the customer; shown in the stop screen only
       rosterIndex: i,
       // per-day capture
       seq: null,
@@ -141,9 +155,49 @@
     return state;
   }
 
+  /** The note for today: this pickup only. */
   function setNote(state, id, text) {
     findStop(state, id).note = (text || '').trim();
     return state;
+  }
+
+  /** The note that stays with the customer. A change is flagged so the day's export carries it. */
+  function setSavedNote(state, id, text) {
+    const s = findStop(state, id);
+    const next = (text || '').trim();
+    if (next !== (s.savedNote || '')) { s.savedNote = next; s.savedNoteChanged = true; }
+    return state;
+  }
+
+  /** Bring a saved day's saved notes up to date: a day opened before the notes arrived, or before
+      the roster was replaced. A saved note changed today on this phone is left alone. */
+  function refreshSavedNotes(state, roster, savedNotes) {
+    const day = roster && roster.days && roster.days[state.rosterDay || state.day];
+    const byKey = {};
+    for (const r of (day ? day.stops : [])) byKey[noteKey(r.street, r.number)] = r;
+    for (const s of state.stops) {
+      if (s.savedNoteChanged) continue;
+      s.savedNote = savedNoteFor(byKey[noteKey(s.street, s.number)] || s, savedNotes);
+    }
+    return state;
+  }
+
+  /** Drop the notes kept on this phone that the roster now carries with the same words. */
+  function pruneSavedNotes(savedNotes, roster) {
+    const seen = {};
+    for (const d of Object.values((roster && roster.days) || {})) {
+      for (const r of (d.stops || [])) {
+        (seen[noteKey(r.street, r.number)] = seen[noteKey(r.street, r.number)] || [])
+          .push(typeof r.savedNote === 'string' ? r.savedNote.trim() : '');
+      }
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(savedNotes || {})) {
+      const texts = seen[k];
+      if (texts && texts.every(t => t === String((v && v.text) || '').trim())) continue;
+      out[k] = v;
+    }
+    return out;
   }
 
   /** Skip = DELETE on the sheet (not served today). Skipped stops are kept, unsequenced. */
@@ -251,13 +305,15 @@
   function toCsv(state) {
     const { seq, skipped, rest } = orderedStops(state);
     const head = ['date', 'day', 'seq', 'time', 'street', 'number', 'name', 'trash_cans', 'recycling_cans',
-      'roadside', 'has_recycle', 'contract', 'status', 'note', 'added_today'];
+      'roadside', 'has_recycle', 'contract', 'status', 'note', 'added_today', 'saved_note'];
     const yn = v => (v == null ? '' : (v ? 'yes' : 'no'));
     const row = (s, status) => [
       state.date, state.day, s.seq == null ? '' : s.seq, s.time ? hhmmss(s.time) : '',
       s.street, s.number, s.name, s.cans == null ? '' : s.cans, s.recycling == null ? '' : s.recycling,
       yn(s.roadside), yn(s.hasRecycle),
-      s.contract || '', status, s.note || '', s.added ? 'yes' : ''
+      s.contract || '', status, s.note || '', s.added ? 'yes' : '',
+      // only when the saved note was changed on the phone that day, so it can be filed
+      s.savedNoteChanged ? (s.savedNote || '(removed)') : ''
     ].map(csvEscape).join(',');
     const lines = [head.join(',')];
     for (const s of seq) lines.push(row(s, 'done'));
@@ -319,7 +375,8 @@
 
   return {
     DAY_KEYS, DAY_NAMES, dayKeyOf, dayNameOf, todayIso, hhmm, hhmmss, durationText,
-    createDay, tap, untap, setCount, setCans, setRecycling, move, setNote, toggleSkip, toggleRoadside,
+    createDay, tap, untap, setCount, setCans, setRecycling, move, setNote, setSavedNote, noteKey,
+    refreshSavedNotes, pruneSavedNotes, toggleSkip, toggleRoadside,
     toggleHasRecycle, unhide, addStop,
     complete, reopen, visibleStops, hiddenStops, groupByStreet, orderedStops, summary,
     toCsv, toJson, pdfRows, fileStem, validateRoster

@@ -3,8 +3,10 @@
   'use strict';
 
   const APP_VERSION = '1.1.3';
-  const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', day: d => `rc.day.${d}` };
+  const KEYS = { roster: 'rc.roster', current: 'rc.current', settings: 'rc.settings', savedNotes: 'rc.savedNotes', day: d => `rc.day.${d}` };
   const JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  // A sheet of paper with a folded corner. Drawn, not a character, so every phone shows the same mark.
+  const NOTE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10v7.5l-3.5 3.5H3z M9.5 13.5V10H13 M5.5 5.5h5 M5.5 8h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // ------------------------------------------------------------ storage
   const store = {
@@ -30,6 +32,7 @@
   };
 
   let roster = store.get(KEYS.roster, null);
+  let savedNotes = store.get(KEYS.savedNotes, {});   // notes that stay with a customer, kept on this phone
   let settings = Object.assign({ hideDone: false, keepAwake: false }, store.get(KEYS.settings, {}));
   let state = null;          // today's day state
   let wakeLock = null;
@@ -55,14 +58,14 @@
   function loadDay(isoDate, { rosterDay } = {}) {
     const saved = store.get(KEYS.day(isoDate), null);
     if (saved && saved.format === 'route-capture-day') {
-      state = saved;
+      state = RC.refreshSavedNotes(saved, roster, savedNotes);
     } else {
       let r = roster;
       if (rosterDay && roster && roster.days && roster.days[rosterDay]) {
         // Use another weekday's roster for this date (holiday shift etc).
         r = { ...roster, days: { [RC.dayKeyOf(isoDate)]: roster.days[rosterDay] } };
       }
-      state = RC.createDay(isoDate, r);
+      state = RC.createDay(isoDate, r, savedNotes);
       if (rosterDay) state.rosterDay = rosterDay;
       save();
     }
@@ -139,7 +142,12 @@
     if (s.contract) meta.append(el('span', { class: 'tag contract' }, s.contract));
     if (s.unsure) meta.append(el('span', { class: 'tag unsure' }, 'check #'));
     if (s.added) meta.append(el('span', { class: 'tag new' }, 'added today'));
-    if (s.note) meta.append(el('span', { class: 'tag' }, s.note));
+    if (s.note || s.savedNote) {
+      // one small mark, no words: the notes themselves are in the stop screen
+      const mark = el('span', { class: 'tag note-mark', role: 'img', 'aria-label': 'Has a note', title: 'Has a note' });
+      mark.innerHTML = NOTE_ICON;
+      meta.append(mark);
+    }
 
     const main = el('button', { class: 'main', type: 'button',
       onclick: () => {
@@ -197,10 +205,20 @@
       body.append(act(s.skipped ? 'Un-skip (back on today’s list)' : 'Skip today (DELETE on sheet)', () => RC.toggleSkip(state, id)));
       body.append(act(s.roadside === true ? 'Mark as driveway (not roadside)' : 'Mark as roadside pickup', () => RC.toggleRoadside(state, id)));
       body.append(act(s.hasRecycle === true ? 'Mark as no recycling service' : 'Mark as has recycling ♻', () => RC.toggleHasRecycle(state, id)));
-      const note = el('input', { type: 'text', value: s.note || '', placeholder: 'e.g. back in, gate code, dog' });
-      body.append(el('label', null, 'Note'), note);
+      const note = el('input', { type: 'text', class: 'note-today', value: s.note || '', placeholder: 'only for this pickup', autocomplete: 'off' });
+      const keep = el('input', { type: 'text', class: 'note-saved', value: s.savedNote || '', placeholder: 'e.g. garage code, where the barrels go, dog', autocomplete: 'off' });
+      body.append(el('label', null, 'Note for today'), note);
+      body.append(el('label', null, 'Saved note · stays with this customer'), keep);
       body.append(el('button', { class: 'btn secondary block', type: 'button',
-        onclick: () => { RC.setNote(state, id, note.value); save(); render(); closeSheet(); } }, 'Save note'));
+        onclick: () => {
+          RC.setNote(state, id, note.value);
+          if (keep.value.trim() !== (s.savedNote || '')) {
+            RC.setSavedNote(state, id, keep.value);
+            savedNotes[RC.noteKey(s.street, s.number)] = { text: keep.value.trim(), at: Date.now() };
+            store.set(KEYS.savedNotes, savedNotes);
+          }
+          save(); render(); closeSheet();
+        } }, 'Save notes'));
     }, s.name + (s.time ? ` · ${RC.hhmm(s.time)}` : ''));
   }
 
@@ -314,6 +332,9 @@
     if (problems.length) { showBanner('Roster problems: ' + problems.slice(0, 3).join('; ')); return; }
     roster = obj;
     store.set(KEYS.roster, roster);
+    savedNotes = RC.pruneSavedNotes(savedNotes, roster);   // the roster now carries these
+    store.set(KEYS.savedNotes, savedNotes);
+    if (state) RC.refreshSavedNotes(state, roster, savedNotes);
     closeSheet();
     showBanner(`Roster loaded: ${Object.keys(roster.days).join(', ')}`, 'info');
     if (state && !state.stops.length) { store.del(KEYS.day(state.date)); loadDay(state.date, { rosterDay: state.rosterDay }); }

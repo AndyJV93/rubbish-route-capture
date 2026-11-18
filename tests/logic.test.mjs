@@ -133,10 +133,10 @@ test('CSV export: sequenced first, then skipped, then not done; quotes escaped',
   const lines = RC.toCsv(st).trim().split('\r\n');
   assert.equal(lines.length, 4);
   assert.match(lines[0], /^date,day,seq,time,street,number,name,trash_cans/);
-  assert.match(lines[0], /trash_cans,recycling_cans,roadside,has_recycle,contract,status,note,added_today$/);
-  assert.match(lines[1], /^2026-11-13,Fri,1,\d\d:\d\d:\d\d,Main St,7,Bravo,3,,,,\$18\.75,done,"gate code ""1234"", back in",$/);
-  assert.match(lines[2], /,Main St,1,Alpha,,,yes,,,skipped,,$/);
-  assert.match(lines[3], /,Oak Ln,3,Charlie,,,,yes,,not_done,,$/);
+  assert.match(lines[0], /trash_cans,recycling_cans,roadside,has_recycle,contract,status,note,added_today,saved_note$/);
+  assert.match(lines[1], /^2026-11-13,Fri,1,\d\d:\d\d:\d\d,Main St,7,Bravo,3,,,,\$18\.75,done,"gate code ""1234"", back in",,$/);
+  assert.match(lines[2], /,Main St,1,Alpha,,,yes,,,skipped,,,$/);
+  assert.match(lines[3], /,Oak Ln,3,Charlie,,,,yes,,not_done,,,$/);
 });
 
 test('recycling count is separate from trash and also taps the stop', () => {
@@ -156,7 +156,7 @@ test('recycling count is separate from trash and also taps the stop', () => {
   RC.toggleHasRecycle(st, 'a');
   assert.equal(st.stops.find(s => s.id === 'a').hasRecycle, true);
   const line = RC.toCsv(st).trim().split('\r\n')[1];
-  assert.match(line, /,Oak Ln,3,Charlie,3,2,,yes,,done,,$/);
+  assert.match(line, /,Oak Ln,3,Charlie,3,2,,yes,,done,,,$/);
   assert.equal(RC.pdfRows(st).done[0][5], '2');
 });
 
@@ -186,4 +186,62 @@ test('state survives a JSON round trip (what localStorage does)', () => {
   assert.deepEqual(back, st);
   RC.tap(back, 'b', min(1));
   assert.equal(back.stops.find(s => s.id === 'b').seq, 2);
+});
+
+test('a note kept on the phone wins over the roster and shows at the next visit', () => {
+  const kept = { [RC.noteKey('Main St', '7')]: { text: ' Side door code 1111 ', at: 1 } };
+  const st = RC.createDay('2026-11-13', roster, kept);
+  assert.equal(st.stops.find(s => s.id === 'b').savedNote, 'Side door code 1111');
+  assert.equal(st.stops.find(s => s.id === 'a').savedNote, 'Gate code 0000. Barrels back in the garage.');
+  assert.equal(RC.noteKey(' main st ', 7), RC.noteKey('Main St', '7'));
+});
+
+test('the saved note and the note for today are separate; a changed saved note is carried by the export', () => {
+  const st = RC.createDay('2026-11-13', roster);
+  RC.setNote(st, 'b', 'extra bags today');
+  RC.setSavedNote(st, 'b', ' Barrels behind the shed ');
+  RC.setSavedNote(st, 'c', '');                 // nothing there, so nothing changes
+  RC.setSavedNote(st, 'a', '');                 // taken off on the phone
+  const b = st.stops.find(s => s.id === 'b');
+  assert.equal(b.note, 'extra bags today');
+  assert.equal(b.savedNote, 'Barrels behind the shed');
+  assert.equal(b.savedNoteChanged, true);
+  assert.equal(st.stops.find(s => s.id === 'c').savedNoteChanged, undefined);
+  const lines = RC.toCsv(st).trim().split('\r\n');
+  assert.equal(lines[0].split(',').pop(), 'saved_note');
+  const last = (street, number) => lines.find(l => l.includes(`,${street},${number},`)).split(',').pop();
+  assert.equal(last('Main St', '7'), 'Barrels behind the shed');
+  assert.equal(last('Main St', '1'), '(removed)');
+  assert.equal(last('Oak Ln', '3'), '');
+  // an unchanged saved note never leaves the phone in the CSV
+  assert.ok(!RC.toCsv(RC.createDay('2026-11-13', roster)).includes('Gate code'));
+});
+
+test('a day already open picks up saved notes that arrive later, but not over a change made today', () => {
+  const bare = { ...roster, days: { Fri: { ...roster.days.Fri, stops: roster.days.Fri.stops.map(s => ({ ...s, savedNote: undefined })) } } };
+  const st = RC.createDay('2026-11-13', bare);
+  assert.equal(st.stops.find(s => s.id === 'a').savedNote, '');
+  RC.setSavedNote(st, 'c', 'Dog in the yard');
+  RC.refreshSavedNotes(st, roster, {
+    [RC.noteKey('Main St', '7')]: { text: 'Kept on the phone', at: 1 },
+    [RC.noteKey('Oak Ln', '3')]: { text: 'an older one', at: 0 }
+  });
+  assert.equal(st.stops.find(s => s.id === 'a').savedNote, 'Gate code 0000. Barrels back in the garage.');
+  assert.equal(st.stops.find(s => s.id === 'b').savedNote, 'Kept on the phone');
+  assert.equal(st.stops.find(s => s.id === 'c').savedNote, 'Dog in the yard');
+  // a day saved by an older version has no saved notes at all: it gets them too
+  const old = RC.createDay('2026-11-13', bare);
+  old.stops.forEach(s => { delete s.savedNote; });
+  assert.equal(RC.refreshSavedNotes(old, roster, {}).stops.find(s => s.id === 'a').savedNote, 'Gate code 0000. Barrels back in the garage.');
+});
+
+test('a note kept on the phone is dropped once the roster carries the same words', () => {
+  const kept = {
+    [RC.noteKey('Main St', '1')]: { text: 'Gate code 0000. Barrels back in the garage.', at: 1 },
+    [RC.noteKey('Main St', '7')]: { text: 'Side door code 1111', at: 2 },
+    [RC.noteKey('Elm St', '5')]: { text: 'not in this roster', at: 3 }
+  };
+  const left = RC.pruneSavedNotes(kept, roster);
+  assert.deepEqual(Object.keys(left).sort(), [RC.noteKey('Elm St', '5'), RC.noteKey('Main St', '7')].sort());
+  assert.deepEqual(RC.pruneSavedNotes(undefined, roster), {});
 });
